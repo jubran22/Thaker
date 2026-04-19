@@ -2,11 +2,21 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, spacing, radius, shadow, PRAYERS_AR, PRAYER_ORDER } from '../constants/theme';
 import { apiGet, aladhanDateStr, parseTime, formatTime12 } from '../utils/api';
+
+// Dynamic import for expo-notifications (not supported in Expo Go SDK 53+).
+// We only use LOCAL notifications which still work in dev/production builds.
+async function getNotifications() {
+  try {
+    const mod = await import('expo-notifications');
+    return mod;
+  } catch {
+    return null;
+  }
+}
 
 export default function SettingsScreen() {
   const [notifEnabled, setNotifEnabled] = useState(false);
@@ -35,17 +45,33 @@ export default function SettingsScreen() {
   const toggleNotif = async (val: boolean) => {
     if (val) {
       if (Platform.OS === 'web') {
-        Alert.alert('تنبيه', 'الإشعارات تعمل فقط على تطبيق Expo Go أو البناء الأصلي، وليس على الويب.');
+        Alert.alert('تنبيه', 'الإشعارات تعمل فقط على بناء التطبيق الأصلي (Development Build)، وليس على Expo Go أو الويب.');
         return;
       }
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('الصلاحية مرفوضة', 'فعّل الإشعارات من إعدادات الجهاز.');
+      const Notifications = await getNotifications();
+      if (!Notifications) {
+        Alert.alert(
+          'غير مدعوم في Expo Go',
+          'أُزيلت الإشعارات من Expo Go بدءاً من SDK 53. استخدم Development Build لتفعيلها.'
+        );
         return;
       }
-      await scheduleDailyPrayerNotifications();
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('الصلاحية مرفوضة', 'فعّل الإشعارات من إعدادات الجهاز.');
+          return;
+        }
+        await scheduleDailyPrayerNotifications();
+      } catch (e: any) {
+        Alert.alert('تعذر التفعيل', e?.message || 'خطأ غير معروف');
+        return;
+      }
     } else {
-      await Notifications.cancelAllScheduledNotificationsAsync();
+      const Notifications = await getNotifications();
+      if (Notifications) {
+        try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch {}
+      }
     }
     await AsyncStorage.setItem('notif_enabled', val ? '1' : '0');
     setNotifEnabled(val);
@@ -161,6 +187,8 @@ export default function SettingsScreen() {
 
 async function scheduleDailyPrayerNotifications() {
   try {
+    const Notifications = await getNotifications();
+    if (!Notifications) return;
     await Notifications.cancelAllScheduledNotificationsAsync();
     const loc = await AsyncStorage.getItem('user_location');
     if (!loc) return;
