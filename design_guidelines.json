@@ -1,0 +1,153 @@
+{
+  "theme": "Light",
+  "archetype": "1 (Organic & Earthy)",
+  "rtl_enabled": true,
+  "colors": {
+    "background": {
+      "main": "#FAFAF9",
+      "card": "#FFFFFF",
+      "elevated": "#F5F5F4",
+      "hero_overlay_start": "rgba(20, 83, 45, 0.9)",
+      "hero_overlay_end": "rgba(20, 83, 45, 0.7)"
+    },
+    "primary": {
+      "DEFAULT": "#14532D",
+      "light": "#166534",
+      "dark": "#14532D"
+    },
+    "secondary": {
+      "DEFAULT": "#D97706",
+      "light": "#F59E0B"
+    },
+    "text": {
+      "primary": "#1C1917",
+      "secondary": "#57534E",
+      "tertiary": "#A8A29E",
+      "inverse": "#FFFFFF",
+      "inverse_muted": "rgba(255, 255, 255, 0.8)"
+    },
+    "status": {
+      "success": "#16A34A",
+      "warning": "#F59E0B",
+      "error": "#DC2626"
+    },
+    "accents": {
+      "gold": "#D97706",
+      "sage": "#86EFAC",
+      "sand": "#E7E5E4"
+    }
+  },
+  "typography": {
+    "font_imports": [
+      "@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Tajawal:wght@400;500;700;800&display=swap');"
+    ],
+    "font_families": {
+      "headings": "'Tajawal', sans-serif",
+      "body": "'Cairo', sans-serif",
+      "numbers": "'Tajawal', monospace"
+    },
+    "hierarchy": {
+      "h1_hero": "text-4xl sm:text-5xl font-bold tracking-tight text-white font-['Tajawal']",
+      "h2_section": "text-2xl font-bold tracking-tight text-stone-900 font-['Tajawal']",
+      "h3_card": "text-lg font-bold text-stone-900 font-['Tajawal']",
+      "body_main": "text-base text-stone-600 font-['Cairo'] leading-relaxed",
+      "body_small": "text-sm text-stone-500 font-['Cairo']",
+      "label": "text-xs font-bold uppercase tracking-widest text-stone-400 font-['Tajawal']",
+      "time_display": "text-5xl font-bold text-white tracking-tighter font-['Tajawal']"
+    }
+  },
+  "spacing_and_layout": {
+    "mobile_container": "w-full max-w-md mx-auto h-[100dvh] overflow-hidden flex flex-col relative bg-stone-50 shadow-2xl shadow-stone-900/10 border-x border-stone-200",
+    "section_padding": "p-6",
+    "card_padding": "p-5",
+    "gap_small": "gap-3",
+    "gap_medium": "gap-6",
+    "gap_large": "gap-8",
+    "border_radius": {
+      "card": "rounded-3xl",
+      "button": "rounded-full",
+      "badge": "rounded-full"
+    },
+    "rtl_rules": [
+      "Always set dir='rtl' on the root container: <div dir='rtl' className='...'>",
+      "Use Flexbox gap (gap-x-4) instead of left/right margins for horizontal spacing to ensure automatic RTL flipping.",
+      "Icons pointing forward (like arrows) must be rotated 180 degrees using 'rotate-180' if applicable."
+    ]
+  },
+  "components": {
+    "hero_prayer_card": {
+      "style": "relative w-full overflow-hidden rounded-b-[2.5rem] bg-green-900 shadow-lg",
+      "content": "Contains dynamic background image, heavy green overlay for contrast, current date/Hijri/Location at top, huge next prayer time countdown in center, and active prayer highlighted.",
+      "padding": "px-6 pt-12 pb-10"
+    },
+    "daily_prayer_tracker": {
+      "layout": "flex gap-3 overflow-x-auto pb-4 snap-x hide-scrollbar",
+      "item_style": "min-w-[100px] flex-shrink-0 bg-white rounded-3xl p-4 flex flex-col items-center justify-center gap-2 border border-stone-100 shadow-sm snap-start",
+      "active_style": "border-amber-600 bg-amber-50"
+    },
+    "bento_adhkar_grid": {
+      "layout": "grid grid-cols-2 gap-4",
+      "morning_evening_style": "col-span-2 bg-white rounded-3xl p-5 border border-stone-100 shadow-sm flex justify-between items-center relative overflow-hidden",
+      "small_card_style": "col-span-1 bg-white rounded-3xl p-5 border border-stone-100 shadow-sm flex flex-col items-center justify-center text-center gap-3"
+    },
+    "bottom_navigation": {
+      "layout": "absolute bottom-0 w-full bg-white/90 backdrop-blur-xl border-t border-stone-100 px-6 py-4 flex justify-between items-center z-50 rounded-t-3xl shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)]",
+      "item_inactive": "text-stone-400 flex flex-col items-center gap-1",
+      "item_active": "text-green-900 flex flex-col items-center gap-1 font-bold",
+      "indicator": "w-1 h-1 bg-amber-600 rounded-full mt-1"
+    },
+    "progress_ring": {
+      "style": "stroke-amber-600 stroke-[4px] fill-transparent",
+      "track": "stroke-stone-100 stroke-[4px] fill-transparent"
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "category": "hero_background",
+        "url": "https://images.pexels.com/photos/30466249/pexels-photo-30466249.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Mosque dome at sunset. Use absolute inset-0 object-cover with a bg-green-900/80 overlay."
+      },
+      {
+        "category": "adhkar_morning",
+        "url": "https://images.unsplash.com/photo-1763102915480-cb66bd6b7c2f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwyfHxzZXJlbmUlMjBzdW5zZXQlMjBkYXduJTIwc2t5JTIwbWluaW1hbHxlbnwwfHx8fDE3NzY2MzI5ODB8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Dawn sky abstract. Use as a subtle right-aligned decorative background inside the Morning Adhkar card with opacity-40."
+      },
+      {
+        "category": "adhkar_evening",
+        "url": "https://images.pexels.com/photos/36830566/pexels-photo-36830566.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Mosque crescent against blue sky. Use as decorative background for Evening Adhkar card."
+      }
+    ]
+  },
+  "icons": {
+    "recommended_library": "lucide-react",
+    "mapping": {
+      "home": "Home",
+      "quran_adhkar": "BookOpen",
+      "stats": "BarChart",
+      "settings": "Settings",
+      "prayer_checked": "CheckCircle2",
+      "prayer_unchecked": "Circle",
+      "tasbih": "Activity",
+      "location": "MapPin"
+    }
+  },
+  "motion_and_interactions": {
+    "hover_state": "transition-transform duration-200 ease-out active:scale-95",
+    "list_stagger": "animate-in slide-in-from-bottom-4 fade-in duration-500",
+    "checked_animation": "scale-in-110 duration-300 text-green-600"
+  },
+  "instructions_to_main_agent": [
+    "Inject the Google Fonts (@import url) into index.css.",
+    "Ensure all font-family classes refer to the injected fonts (Tajawal for headings, Cairo for body).",
+    "Wrap the main App component return in `<div dir='rtl' className='w-full max-w-md mx-auto h-[100dvh] overflow-hidden flex flex-col relative bg-stone-50 shadow-2xl shadow-stone-900/10 border-x border-stone-200 font-[\"Cairo\"]'>`.",
+    "Implement a Bottom Tab Navigation state manager holding 4 views: الصلاة (Home), الأذكار (Adhkar), الإحصائيات (Stats), الإعدادات (Settings).",
+    "HOME SCREEN (الصلاة): Build a massive Hero section (hero_prayer_card) using the hero_background image with a dark green gradient overlay (`bg-gradient-to-b from-green-950/90 to-green-900/80`). Show Hijri date, Location, Next Prayer (e.g., الفجر) in huge 'Tajawal' font, and a countdown.",
+    "HOME SCREEN (الصلاة): Below the hero, implement a horizontal scroll (flex snap-x) of the 5 daily prayers (Fajr, Dhuhr, Asr, Maghrib, Isha). Each card should have a toggleable CheckCircle icon to mark it as prayed.",
+    "HOME SCREEN (الصلاة): Below the prayers, add the Adhkar Bento Grid. 'أذكار الصباح' and 'أذكار المساء' as wide cards. 'السبحة' (Tasbih) and 'القرآن' (Quran tracker) as square cards.",
+    "STATS SCREEN: Use standard Recharts to show a simple bar chart of prayers completed over the week. Theme it with emerald (#10B981) and amber (#F59E0B).",
+    "Maintain high contrast. Do not use 'transparent' text or generic placeholders. Use valid Arabic copy for all mock data.",
+    "Do NOT use inline styles for RTL flipping, rely on flexbox natural flow under dir='rtl'."
+  ]
+}
