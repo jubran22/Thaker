@@ -85,6 +85,7 @@ async def get_day_doc(device_id: str, date: str) -> Dict[str, Any]:
             "date": date,
             "prayers": {p: False for p in PRAYERS},
             "adhkar": {a: False for a in ADHKAR_TYPES},
+            "sunnah": {p: {"before": False, "after": False} for p in PRAYERS},
             "tasbih_count": 0,
             "quran_pages": 0,
             "custom_wirds": {},  # wird_id -> count
@@ -92,6 +93,9 @@ async def get_day_doc(device_id: str, date: str) -> Dict[str, Any]:
     # Ensure structure for older docs
     doc.setdefault("prayers", {p: False for p in PRAYERS})
     doc.setdefault("adhkar", {a: False for a in ADHKAR_TYPES})
+    doc.setdefault("sunnah", {p: {"before": False, "after": False} for p in PRAYERS})
+    for p in PRAYERS:
+        doc["sunnah"].setdefault(p, {"before": False, "after": False})
     doc.setdefault("tasbih_count", 0)
     doc.setdefault("quran_pages", 0)
     doc.setdefault("custom_wirds", {})
@@ -180,6 +184,47 @@ async def toggle_adhkar(body: AdhkarLog):
     doc["adhkar"][body.adhkar_type] = body.completed
     await save_day_doc(doc)
     return {"ok": True, "adhkar": doc["adhkar"]}
+
+
+class SunnahToggle(BaseModel):
+    device_id: str
+    date: str
+    prayer: str  # fajr/dhuhr/asr/maghrib/isha
+    kind: str  # before or after
+    completed: bool
+
+
+@api_router.post("/sunnah/toggle")
+async def toggle_sunnah(body: SunnahToggle):
+    if body.prayer not in PRAYERS or body.kind not in ("before", "after"):
+        raise HTTPException(400, "Invalid prayer or kind")
+    doc = await get_day_doc(body.device_id, body.date)
+    doc["sunnah"].setdefault(body.prayer, {"before": False, "after": False})
+    doc["sunnah"][body.prayer][body.kind] = body.completed
+    await save_day_doc(doc)
+    return {"ok": True, "sunnah": doc["sunnah"]}
+
+
+class QuranBookmark(BaseModel):
+    device_id: str
+    page: int
+
+
+@api_router.post("/quran/bookmark")
+async def set_bookmark(body: QuranBookmark):
+    await db.quran_bookmarks.update_one(
+        {"device_id": body.device_id},
+        {"$set": {"device_id": body.device_id, "page": int(body.page),
+                  "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "page": int(body.page)}
+
+
+@api_router.get("/quran/bookmark")
+async def get_bookmark(device_id: str):
+    doc = await db.quran_bookmarks.find_one({"device_id": device_id}, {"_id": 0})
+    return doc or {"device_id": device_id, "page": 1}
 
 
 @api_router.post("/tasbih/add")

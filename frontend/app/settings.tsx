@@ -23,10 +23,13 @@ export default function SettingsScreen() {
   const [city, setCity] = useState('');
   const [loadingLoc, setLoadingLoc] = useState(false);
   const [times, setTimes] = useState<any>(null);
+  const [reminderMin, setReminderMin] = useState<number>(10);
 
   const loadAll = useCallback(async () => {
     const enabled = (await AsyncStorage.getItem('notif_enabled')) === '1';
     setNotifEnabled(enabled);
+    const rm = await AsyncStorage.getItem('notif_reminder_min');
+    if (rm != null) setReminderMin(parseInt(rm, 10) || 0);
     const loc = await AsyncStorage.getItem('user_location');
     if (loc) {
       const p = JSON.parse(loc);
@@ -41,6 +44,14 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  const changeReminder = async (m: number) => {
+    setReminderMin(m);
+    await AsyncStorage.setItem('notif_reminder_min', String(m));
+    if (notifEnabled) {
+      await scheduleDailyPrayerNotifications(m);
+    }
+  };
 
   const toggleNotif = async (val: boolean) => {
     if (val) {
@@ -103,7 +114,7 @@ export default function SettingsScreen() {
         `/prayer-times?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}&date=${aladhanDateStr()}`
       );
       setTimes(pt);
-      if (notifEnabled) await scheduleDailyPrayerNotifications();
+      if (notifEnabled) await scheduleDailyPrayerNotifications(reminderMin);
       Alert.alert('تم', 'تم تحديث الموقع بنجاح');
     } catch (e: any) {
       Alert.alert('خطأ', e.message || 'فشل تحديث الموقع');
@@ -153,6 +164,27 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <Text style={styles.subsection}>تذكير قبل الصلاة</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardSub}>
+            إشعار ينبّهك قبل دخول وقت الصلاة لتستعد
+          </Text>
+          <View style={styles.reminderRow}>
+            {[0, 5, 10, 15, 20, 30].map((m) => (
+              <TouchableOpacity
+                key={m}
+                testID={`reminder-${m}`}
+                onPress={() => changeReminder(m)}
+                style={[styles.reminderBtn, reminderMin === m && styles.reminderBtnActive]}
+              >
+                <Text style={[styles.reminderText, reminderMin === m && styles.reminderTextActive]}>
+                  {m === 0 ? 'بدون' : `${m} د`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         {times && (
           <>
             <Text style={styles.section}>أوقات اليوم</Text>
@@ -185,7 +217,7 @@ export default function SettingsScreen() {
   );
 }
 
-async function scheduleDailyPrayerNotifications() {
+async function scheduleDailyPrayerNotifications(reminderMin: number = 0) {
   try {
     const Notifications = await getNotifications();
     if (!Notifications) return;
@@ -200,15 +232,32 @@ async function scheduleDailyPrayerNotifications() {
     const now = new Date();
     for (const k of PRAYER_ORDER) {
       const d = parseTime(timings[k]);
-      if (!d || d.getTime() <= now.getTime()) continue;
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: `حان الآن وقت صلاة ${PRAYERS_AR[k]}`,
-          body: 'لا تنسَ إتمام الصلاة وتسجيلها في التطبيق 🕌',
-          sound: true,
-        },
-        trigger: { date: d } as any,
-      });
+      if (!d) continue;
+      // Pre-reminder
+      if (reminderMin > 0) {
+        const pre = new Date(d.getTime() - reminderMin * 60 * 1000);
+        if (pre.getTime() > now.getTime()) {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: `اقترب وقت صلاة ${PRAYERS_AR[k]}`,
+              body: `باقي ${reminderMin} دقيقة على الأذان 🕌 تهيأ للصلاة`,
+              sound: true,
+            },
+            trigger: { date: pre } as any,
+          });
+        }
+      }
+      // At-time notification
+      if (d.getTime() > now.getTime()) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: `حان الآن وقت صلاة ${PRAYERS_AR[k]}`,
+            body: 'لا تنسَ إتمام الصلاة وتسجيلها في التطبيق 🕌',
+            sound: true,
+          },
+          trigger: { date: d } as any,
+        });
+      }
     }
   } catch (e) {
     console.log('schedule error', e);
@@ -219,6 +268,18 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   title: { fontSize: 28, fontWeight: '800', color: colors.textPrimary, textAlign: 'right', marginBottom: spacing.md },
   section: { fontSize: 14, fontWeight: '800', color: colors.textSecondary, textAlign: 'right', marginTop: spacing.lg, marginBottom: 8, letterSpacing: 1 },
+  subsection: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, textAlign: 'right', marginTop: spacing.md, marginBottom: 6 },
+  reminderRow: {
+    flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8,
+    marginTop: 12,
+  },
+  reminderBtn: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full,
+    backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.border,
+  },
+  reminderBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  reminderText: { color: colors.textSecondary, fontWeight: '700', fontSize: 13 },
+  reminderTextActive: { color: colors.textInverse },
   card: {
     backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md,
     borderWidth: 1, borderColor: colors.border, ...shadow.sm,

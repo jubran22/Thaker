@@ -72,6 +72,12 @@ export default function RootLayout() {
             ),
           }}
         />
+        <Tabs.Screen
+          name="quran"
+          options={{
+            href: null, // Hide from tab bar — pushed programmatically
+          }}
+        />
       </Tabs>
     </SafeAreaProvider>
   );

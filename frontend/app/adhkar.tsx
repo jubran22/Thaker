@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 import { colors, spacing, radius, shadow } from '../constants/theme';
@@ -34,6 +35,7 @@ import {
 type View_ = 'hub' | 'morning' | 'evening' | 'after' | 'sleep' | 'tasbih' | 'quran' | 'custom';
 
 export default function AdhkarScreen() {
+  const router = useRouter();
   const [view, setView] = useState<View_>('hub');
   const [deviceId, setDeviceId] = useState('');
   const [day, setDay] = useState<any>(null);
@@ -141,7 +143,7 @@ export default function AdhkarScreen() {
             testID="card-quran"
             icon="library"
             title={`القرآن (${day?.quran_pages || 0} ص)`}
-            onPress={() => setView('quran')}
+            onPress={() => router.push('/quran')}
           />
         </View>
 

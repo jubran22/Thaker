@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, spacing, radius, shadow, PRAYERS_AR, PRAYER_ORDER } from '../constants/theme';
+import { SUNAN_RAWATIB } from '../constants/adhkar';
 import {
   getDeviceId,
   apiGet,
@@ -48,6 +49,13 @@ export default function HomeScreen() {
     asr: false,
     maghrib: false,
     isha: false,
+  });
+  const [sunnah, setSunnah] = useState<Record<string, { before: boolean; after: boolean }>>({
+    fajr: { before: false, after: false },
+    dhuhr: { before: false, after: false },
+    asr: { before: false, after: false },
+    maghrib: { before: false, after: false },
+    isha: { before: false, after: false },
   });
   const [now, setNow] = useState(new Date());
 
@@ -117,6 +125,7 @@ export default function HomeScreen() {
       // Today's completed prayers
       const day = await apiGet<any>(`/day?device_id=${id}&date=${todayStr()}`);
       if (day?.prayers) setPrayers(day.prayers);
+      if (day?.sunnah) setSunnah(day.sunnah);
     } catch (e: any) {
       console.log('loadData error', e?.message);
     } finally {
@@ -163,6 +172,23 @@ export default function HomeScreen() {
     } catch (e: any) {
       Alert.alert('خطأ', 'تعذر حفظ الحالة');
       setPrayers((p) => ({ ...p, [prayer]: !newVal }));
+    }
+  };
+
+  const toggleSunnah = async (prayer: string, kind: 'before' | 'after') => {
+    const cur = sunnah[prayer]?.[kind] ?? false;
+    const newVal = !cur;
+    setSunnah((s) => ({ ...s, [prayer]: { ...s[prayer], [kind]: newVal } }));
+    try {
+      await apiPost('/sunnah/toggle', {
+        device_id: deviceId,
+        date: todayStr(),
+        prayer,
+        kind,
+        completed: newVal,
+      });
+    } catch {
+      setSunnah((s) => ({ ...s, [prayer]: { ...s[prayer], [kind]: cur } }));
     }
   };
 
@@ -283,6 +309,65 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* SUNAN RAWATIB */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>السنن الرواتب</Text>
+          <Text style={styles.sectionHint}>اضغط لتسجيل السنن قبل/بعد كل صلاة</Text>
+          <View style={styles.listCard}>
+            {PRAYER_ORDER.map((p, idx) => {
+              const info = SUNAN_RAWATIB[p];
+              const s = sunnah[p] || { before: false, after: false };
+              // Hide prayers with no sunnah at all
+              if (info.before === 0 && info.after === 0) return null;
+              return (
+                <View
+                  key={p}
+                  style={[
+                    styles.sunnahRow,
+                    idx > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
+                  ]}
+                >
+                  <Text style={styles.sunnahName}>{PRAYERS_AR[p]}</Text>
+                  <View style={styles.sunnahPills}>
+                    {info.after > 0 && (
+                      <TouchableOpacity
+                        testID={`sunnah-${p}-after`}
+                        onPress={() => toggleSunnah(p, 'after')}
+                        style={[styles.sunnahPill, s.after && styles.sunnahPillDone]}
+                      >
+                        <Ionicons
+                          name={s.after ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={16}
+                          color={s.after ? colors.success : colors.textTertiary}
+                        />
+                        <Text style={[styles.sunnahPillText, s.after && { color: colors.success }]}>
+                          بعد · {info.after}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {info.before > 0 && (
+                      <TouchableOpacity
+                        testID={`sunnah-${p}-before`}
+                        onPress={() => toggleSunnah(p, 'before')}
+                        style={[styles.sunnahPill, s.before && styles.sunnahPillDone]}
+                      >
+                        <Ionicons
+                          name={s.before ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={16}
+                          color={s.before ? colors.success : colors.textTertiary}
+                        />
+                        <Text style={[styles.sunnahPillText, s.before && { color: colors.success }]}>
+                          قبل · {info.before}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+
         <View style={{ height: 24 }} />
       </ScrollView>
     </View>
@@ -368,6 +453,31 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     textAlign: 'right',
   },
+  sectionHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'right',
+    marginTop: -8,
+    marginBottom: spacing.sm,
+  },
+  sunnahRow: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+  },
+  sunnahName: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  sunnahPills: { flexDirection: 'row-reverse', gap: 6 },
+  sunnahPill: {
+    flexDirection: 'row-reverse', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.elevated,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  sunnahPillDone: { backgroundColor: '#ECFDF5', borderColor: colors.success },
+  sunnahPillText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
   prayerRow: {
     flexDirection: 'row-reverse',
     gap: 8,
