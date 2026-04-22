@@ -59,29 +59,54 @@ export default function HomeScreen() {
   });
   const [now, setNow] = useState(new Date());
 
+  const [error, setError] = useState<string>('');
+
+  const fetchTimesForLocation = useCallback(async (lat: number, lng: number, cityName: string) => {
+    try {
+      setCity(cityName);
+      const date = aladhanDateStr();
+      const pt = await apiGet<PrayerTimes>(
+        `/prayer-times?lat=${lat}&lng=${lng}&date=${date}`
+      );
+      setTimes(pt);
+      setError('');
+    } catch (e: any) {
+      setError(e?.message || 'تعذر تحميل أوقات الصلاة');
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
-      // Device id
       const id = await getDeviceId();
       setDeviceId(id);
 
-      // Location
-      let lat = 21.3891;
-      let lng = 39.8579; // Makkah default
-      let cityName = 'مكة المكرمة';
-
+      // 1) Load today's saved data
       try {
-        const saved = await AsyncStorage.getItem('user_location');
-        if (saved) {
+        const day = await apiGet<any>(`/day?device_id=${id}&date=${todayStr()}`);
+        if (day?.prayers) setPrayers(day.prayers);
+        if (day?.sunnah) setSunnah(day.sunnah);
+      } catch {}
+
+      // 2) Load prayer times IMMEDIATELY using saved or default location
+      const saved = await AsyncStorage.getItem('user_location');
+      let lat = 21.3891;
+      let lng = 39.8579;
+      let cityName = 'مكة المكرمة';
+      if (saved) {
+        try {
           const p = JSON.parse(saved);
-          lat = p.lat;
-          lng = p.lng;
-          cityName = p.city || cityName;
-        } else {
-          // Request location with a hard timeout so the app never hangs
-          const locPromise = (async () => {
+          lat = p.lat; lng = p.lng; cityName = p.city || cityName;
+        } catch {}
+      }
+      await fetchTimesForLocation(lat, lng, cityName);
+      setLoading(false);
+
+      // 3) In background, try to get fresh GPS location (non-blocking)
+      if (!saved) {
+        (async () => {
+          try {
             const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') return null;
+            if (status !== 'granted') return;
             const l = await Location.getCurrentPositionAsync({
               accuracy: Location.Accuracy.Balanced,
             });
@@ -95,44 +120,21 @@ export default function HomeScreen() {
                 c = rev[0].city || rev[0].region || rev[0].country || c;
               }
             } catch {}
-            return { lat: l.coords.latitude, lng: l.coords.longitude, city: c };
-          })();
-          const res: any = await Promise.race([
-            locPromise,
-            new Promise((r) => setTimeout(() => r(null), 5000)),
-          ]);
-          if (res) {
-            lat = res.lat;
-            lng = res.lng;
-            cityName = res.city;
             await AsyncStorage.setItem(
               'user_location',
-              JSON.stringify({ lat, lng, city: cityName })
+              JSON.stringify({ lat: l.coords.latitude, lng: l.coords.longitude, city: c })
             );
-          }
-        }
-      } catch {}
-
-      setCity(cityName);
-
-      // Prayer times
-      const date = aladhanDateStr();
-      const pt = await apiGet<PrayerTimes>(
-        `/prayer-times?lat=${lat}&lng=${lng}&date=${date}`
-      );
-      setTimes(pt);
-
-      // Today's completed prayers
-      const day = await apiGet<any>(`/day?device_id=${id}&date=${todayStr()}`);
-      if (day?.prayers) setPrayers(day.prayers);
-      if (day?.sunnah) setSunnah(day.sunnah);
+            await fetchTimesForLocation(l.coords.latitude, l.coords.longitude, c);
+          } catch {}
+        })();
+      }
     } catch (e: any) {
-      console.log('loadData error', e?.message);
-    } finally {
+      setError(e?.message || 'خطأ في التحميل');
       setLoading(false);
+    } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchTimesForLocation]);
 
   useEffect(() => {
     loadData();
@@ -202,6 +204,27 @@ export default function HomeScreen() {
       <View style={[styles.center, { backgroundColor: colors.bg }]} testID="home-loading">
         <ActivityIndicator color={colors.primary} size="large" />
       </View>
+    );
+  }
+
+  if (!times) {
+    return (
+      <SafeAreaView style={[styles.center, { flex: 1, backgroundColor: colors.bg, padding: spacing.lg }]}>
+        <Ionicons name="cloud-offline" size={56} color={colors.textTertiary} />
+        <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700', marginTop: 12, textAlign: 'center' }}>
+          تعذر تحميل أوقات الصلاة
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+          {error || 'تحقق من اتصال الإنترنت ثم أعد المحاولة'}
+        </Text>
+        <TouchableOpacity
+          testID="home-retry"
+          onPress={() => { setLoading(true); loadData(); }}
+          style={{ marginTop: 20, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 999 }}
+        >
+          <Text style={{ color: colors.textInverse, fontWeight: '800' }}>إعادة المحاولة</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
     );
   }
 
