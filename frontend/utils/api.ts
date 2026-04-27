@@ -340,7 +340,16 @@ export async function fetchPrayerTimes(
     if (!response.ok) throw new Error(`فشل جلب أوقات الصلاة: ${response.status}`);
     const json = await response.json();
     if (json.code !== 200) throw new Error('استجابة غير صحيحة من API الأذان');
-    return json.data as PrayerTimes;
+    const data = json.data as PrayerTimes;
+    // تحويل مفاتيح الأوقات من حروف كبيرة إلى صغيرة
+    // Aladhan API يُرجع: Fajr, Dhuhr, Asr, Maghrib, Isha
+    // التطبيق يستخدم: fajr, dhuhr, asr, maghrib, isha
+    const normalizedTimings: Record<string, string> = {};
+    for (const [key, val] of Object.entries(data.timings)) {
+      normalizedTimings[key.toLowerCase()] = val;
+    }
+    data.timings = normalizedTimings;
+    return data;
   } catch (e) {
     clearTimeout(timeout);
     throw e;
