@@ -75,7 +75,10 @@ function TabsInner() {
       <Tabs.Screen
         name="quran"
         options={{
-          href: null, // Hide from tab bar — pushed programmatically
+          title: 'القرآن',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="book-outline" size={size} color={color} />
+          ),
         }}
       />
     </Tabs>
