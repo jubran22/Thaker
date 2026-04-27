@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Platform } from 'react-native';
+import {
+  View, Text, StyleSheet, ScrollView, Switch,
+  TouchableOpacity, Alert, Platform, TextInput, Modal,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, spacing, radius, shadow, PRAYERS_AR, PRAYER_ORDER } from '../constants/theme';
-import { fetchPrayerTimesFromAladhan, aladhanDateStr, parseTime, formatTime12 } from '../utils/api';
+import {
+  fetchPrayerTimesFromAladhan,
+  aladhanDateStr,
+  parseTime,
+  formatTime12,
+  getNotifSettings,
+  saveNotifSettings,
+  NotifSettings,
+  DEFAULT_NOTIF_SETTINGS,
+} from '../utils/api';
 
-// Dynamic import for expo-notifications (not supported in Expo Go SDK 53+).
-// We only use LOCAL notifications which still work in dev/production builds.
+// تحميل expo-notifications بشكل ديناميكي
 async function getNotifications() {
   try {
     const mod = await import('expo-notifications');
@@ -18,18 +29,86 @@ async function getNotifications() {
   }
 }
 
+// ---- مكوّن اختيار الوقت ----
+function TimePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [h, setH] = useState(value.split(':')[0]);
+  const [m, setM] = useState(value.split(':')[1]);
+
+  const confirm = () => {
+    const hh = String(Math.max(0, Math.min(23, parseInt(h, 10) || 0))).padStart(2, '0');
+    const mm = String(Math.max(0, Math.min(59, parseInt(m, 10) || 0))).padStart(2, '0');
+    onChange(`${hh}:${mm}`);
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <TouchableOpacity onPress={() => setOpen(true)} style={styles.timePill}>
+        <Ionicons name="time-outline" size={14} color={colors.primary} />
+        <Text style={styles.timePillText}>{value}</Text>
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade">
+        <View style={styles.modalBg}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitle}>اختر الوقت</Text>
+            <View style={{ flexDirection: 'row-reverse', gap: 12, justifyContent: 'center', marginVertical: 16 }}>
+              <View style={{ alignItems: 'center' }}>
+                <Text style={styles.timeLabel}>الدقيقة</Text>
+                <TextInput
+                  value={m}
+                  onChangeText={setM}
+                  keyboardType="number-pad"
+                  style={styles.timeInput}
+                  maxLength={2}
+                />
+              </View>
+              <Text style={{ fontSize: 28, fontWeight: '800', color: colors.textPrimary, alignSelf: 'flex-end', marginBottom: 8 }}>:</Text>
+              <View style={{ alignItems: 'center' }}>
+                <Text style={styles.timeLabel}>الساعة</Text>
+                <TextInput
+                  value={h}
+                  onChangeText={setH}
+                  keyboardType="number-pad"
+                  style={styles.timeInput}
+                  maxLength={2}
+                />
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row-reverse', gap: 8 }}>
+              <TouchableOpacity onPress={confirm} style={[styles.mBtn, { backgroundColor: colors.primary }]}>
+                <Text style={{ color: colors.textInverse, fontWeight: '800' }}>تأكيد</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setOpen(false)} style={[styles.mBtn, { backgroundColor: colors.elevated }]}>
+                <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>إلغاء</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
 export default function SettingsScreen() {
-  const [notifEnabled, setNotifEnabled] = useState(false);
   const [city, setCity] = useState('');
   const [loadingLoc, setLoadingLoc] = useState(false);
   const [times, setTimes] = useState<any>(null);
-  const [reminderMin, setReminderMin] = useState<number>(10);
+  const [notif, setNotif] = useState<NotifSettings>({ ...DEFAULT_NOTIF_SETTINGS });
+  const [saving, setSaving] = useState(false);
 
   const loadAll = useCallback(async () => {
-    const enabled = (await AsyncStorage.getItem('notif_enabled')) === '1';
-    setNotifEnabled(enabled);
-    const rm = await AsyncStorage.getItem('notif_reminder_min');
-    if (rm != null) setReminderMin(parseInt(rm, 10) || 0);
+    // تحميل إعدادات التنبيهات
+    const ns = await getNotifSettings();
+    setNotif(ns);
+
+    // تحميل الموقع وأوقات الصلاة
     const loc = await AsyncStorage.getItem('user_location');
     if (loc) {
       const p = JSON.parse(loc);
@@ -43,56 +122,13 @@ export default function SettingsScreen() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  const changeReminder = async (m: number) => {
-    setReminderMin(m);
-    await AsyncStorage.setItem('notif_reminder_min', String(m));
-    if (notifEnabled) {
-      await scheduleDailyPrayerNotifications(m);
-    }
-  };
-
-  const toggleNotif = async (val: boolean) => {
-    if (val) {
-      if (Platform.OS === 'web') {
-        Alert.alert('تنبيه', 'الإشعارات تعمل فقط على بناء التطبيق الأصلي (Development Build)، وليس على Expo Go أو الويب.');
-        return;
-      }
-      const Notifications = await getNotifications();
-      if (!Notifications) {
-        Alert.alert(
-          'غير مدعوم في Expo Go',
-          'أُزيلت الإشعارات من Expo Go بدءاً من SDK 53. استخدم Development Build لتفعيلها.'
-        );
-        return;
-      }
-      try {
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('الصلاحية مرفوضة', 'فعّل الإشعارات من إعدادات الجهاز.');
-          return;
-        }
-        await scheduleDailyPrayerNotifications();
-      } catch (e: any) {
-        Alert.alert('تعذر التفعيل', e?.message || 'خطأ غير معروف');
-        return;
-      }
-    } else {
-      const Notifications = await getNotifications();
-      if (Notifications) {
-        try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch {}
-      }
-    }
-    await AsyncStorage.setItem('notif_enabled', val ? '1' : '0');
-    setNotifEnabled(val);
-  };
-
+  // ---- تحديث الموقع ----
   const refreshLocation = async () => {
     setLoadingLoc(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('الصلاحية مرفوضة', 'فعّل الموقع من إعدادات الجهاز.');
-        setLoadingLoc(false);
         return;
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -110,8 +146,7 @@ export default function SettingsScreen() {
       setCity(cityName);
       const pt = await fetchPrayerTimesFromAladhan(loc.coords.latitude, loc.coords.longitude, aladhanDateStr());
       setTimes(pt);
-      if (notifEnabled) await scheduleDailyPrayerNotifications(reminderMin);
-      Alert.alert('تم', 'تم تحديث الموقع بنجاح');
+      Alert.alert('تم ✓', 'تم تحديث الموقع بنجاح');
     } catch (e: any) {
       Alert.alert('خطأ', e.message || 'فشل تحديث الموقع');
     } finally {
@@ -119,71 +154,54 @@ export default function SettingsScreen() {
     }
   };
 
+  // ---- حفظ إعدادات التنبيهات ----
+  const applyNotifSettings = async (updated: NotifSettings) => {
+    setNotif(updated);
+    setSaving(true);
+    try {
+      await saveNotifSettings(updated);
+      await scheduleAllNotifications(updated);
+    } catch {}
+    setSaving(false);
+  };
+
+  const toggleField = (field: keyof NotifSettings, val: boolean) => {
+    if (val && Platform.OS === 'web') {
+      Alert.alert('غير مدعوم', 'التنبيهات تعمل فقط على الأجهزة الحقيقية.');
+      return;
+    }
+    applyNotifSettings({ ...notif, [field]: val });
+  };
+
+  const updateField = (field: keyof NotifSettings, val: any) => {
+    applyNotifSettings({ ...notif, [field]: val });
+  };
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
-        <Text style={styles.title}>الإعدادات</Text>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
+        <Text style={styles.pageTitle}>الإعدادات</Text>
 
-        <Text style={styles.section}>الموقع</Text>
+        {/* ---- الموقع ---- */}
+        <Text style={styles.section}>الموقع الجغرافي</Text>
         <View style={styles.card}>
           <View style={styles.rowBetween}>
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle}>المدينة الحالية</Text>
-              <Text style={styles.cardSub}>{city || 'غير محدد'}</Text>
+              <Text style={styles.cardSub}>{city || 'غير محدد — اضغط تحديث'}</Text>
             </View>
-            <Ionicons name="location" size={24} color={colors.primary} />
+            <Ionicons name="location" size={26} color={colors.primary} />
           </View>
-          <TouchableOpacity
-            testID="refresh-location"
-            style={styles.btn}
-            onPress={refreshLocation}
-            disabled={loadingLoc}
-          >
+          <TouchableOpacity style={styles.btn} onPress={refreshLocation} disabled={loadingLoc}>
+            <Ionicons name="refresh" size={16} color={colors.textInverse} />
             <Text style={styles.btnText}>{loadingLoc ? 'جاري التحديث...' : 'تحديث الموقع'}</Text>
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.section}>الإشعارات</Text>
-        <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>تنبيهات الصلاة</Text>
-              <Text style={styles.cardSub}>إشعار عند دخول وقت كل صلاة</Text>
-            </View>
-            <Switch
-              testID="notif-switch"
-              value={notifEnabled}
-              onValueChange={toggleNotif}
-              trackColor={{ true: colors.primary, false: colors.border }}
-              thumbColor={colors.card}
-            />
-          </View>
-        </View>
-
-        <Text style={styles.subsection}>تذكير قبل الصلاة</Text>
-        <View style={styles.card}>
-          <Text style={styles.cardSub}>
-            إشعار ينبّهك قبل دخول وقت الصلاة لتستعد
-          </Text>
-          <View style={styles.reminderRow}>
-            {[0, 5, 10, 15, 20, 30].map((m) => (
-              <TouchableOpacity
-                key={m}
-                testID={`reminder-${m}`}
-                onPress={() => changeReminder(m)}
-                style={[styles.reminderBtn, reminderMin === m && styles.reminderBtnActive]}
-              >
-                <Text style={[styles.reminderText, reminderMin === m && styles.reminderTextActive]}>
-                  {m === 0 ? 'بدون' : `${m} د`}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
+        {/* ---- أوقات الصلاة ---- */}
         {times && (
           <>
-            <Text style={styles.section}>أوقات اليوم</Text>
+            <Text style={styles.section}>أوقات الصلاة اليوم</Text>
             <View style={styles.card}>
               {PRAYER_ORDER.map((k, idx) => (
                 <View
@@ -198,14 +216,145 @@ export default function SettingsScreen() {
           </>
         )}
 
+        {/* ---- تنبيهات الصلاة ---- */}
+        <Text style={styles.section}>تنبيهات الصلاة</Text>
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>تنبيه عند دخول وقت الصلاة</Text>
+              <Text style={styles.cardSub}>إشعار فور دخول وقت كل صلاة</Text>
+            </View>
+            <Switch
+              value={notif.prayer_enabled}
+              onValueChange={(v) => toggleField('prayer_enabled', v)}
+              trackColor={{ true: colors.primary, false: colors.border }}
+              thumbColor={colors.card}
+            />
+          </View>
+
+          {notif.prayer_enabled && (
+            <>
+              <View style={[styles.divider]} />
+              <Text style={styles.cardSub}>تذكير قبل الصلاة بـ:</Text>
+              <View style={styles.pillRow}>
+                {[0, 5, 10, 15, 20, 30].map((m) => (
+                  <TouchableOpacity
+                    key={m}
+                    onPress={() => updateField('prayer_reminder_min', m)}
+                    style={[styles.pill, notif.prayer_reminder_min === m && styles.pillActive]}
+                  >
+                    <Text style={[styles.pillText, notif.prayer_reminder_min === m && styles.pillTextActive]}>
+                      {m === 0 ? 'بدون' : `${m} د`}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* ---- أذكار الصباح ---- */}
+        <Text style={styles.section}>أذكار الصباح</Text>
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>تذكير بأذكار الصباح</Text>
+              <Text style={styles.cardSub}>إشعار يومي لقراءة أذكار الصباح</Text>
+            </View>
+            <Switch
+              value={notif.morning_adhkar_enabled}
+              onValueChange={(v) => toggleField('morning_adhkar_enabled', v)}
+              trackColor={{ true: colors.primary, false: colors.border }}
+              thumbColor={colors.card}
+            />
+          </View>
+          {notif.morning_adhkar_enabled && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.rowBetween}>
+                <TimePicker
+                  value={notif.morning_adhkar_time}
+                  onChange={(v) => updateField('morning_adhkar_time', v)}
+                />
+                <Text style={styles.cardSub}>وقت التنبيه</Text>
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* ---- أذكار المساء ---- */}
+        <Text style={styles.section}>أذكار المساء</Text>
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>تذكير بأذكار المساء</Text>
+              <Text style={styles.cardSub}>إشعار يومي لقراءة أذكار المساء</Text>
+            </View>
+            <Switch
+              value={notif.evening_adhkar_enabled}
+              onValueChange={(v) => toggleField('evening_adhkar_enabled', v)}
+              trackColor={{ true: colors.primary, false: colors.border }}
+              thumbColor={colors.card}
+            />
+          </View>
+          {notif.evening_adhkar_enabled && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.rowBetween}>
+                <TimePicker
+                  value={notif.evening_adhkar_time}
+                  onChange={(v) => updateField('evening_adhkar_time', v)}
+                />
+                <Text style={styles.cardSub}>وقت التنبيه</Text>
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* ---- تذكير الورد اليومي ---- */}
+        <Text style={styles.section}>الورد اليومي من القرآن</Text>
+        <View style={styles.card}>
+          <View style={styles.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>تذكير بالورد اليومي</Text>
+              <Text style={styles.cardSub}>إشعار يومي لقراءة وردك من القرآن</Text>
+            </View>
+            <Switch
+              value={notif.wird_enabled}
+              onValueChange={(v) => toggleField('wird_enabled', v)}
+              trackColor={{ true: colors.primary, false: colors.border }}
+              thumbColor={colors.card}
+            />
+          </View>
+          {notif.wird_enabled && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.rowBetween}>
+                <TimePicker
+                  value={notif.wird_time}
+                  onChange={(v) => updateField('wird_time', v)}
+                />
+                <Text style={styles.cardSub}>وقت التنبيه</Text>
+              </View>
+            </>
+          )}
+        </View>
+
+        {saving && (
+          <Text style={{ textAlign: 'center', color: colors.textSecondary, marginTop: 8, fontSize: 13 }}>
+            جاري حفظ الإعدادات...
+          </Text>
+        )}
+
+        {/* ---- عن التطبيق ---- */}
         <Text style={styles.section}>عن التطبيق</Text>
         <View style={styles.card}>
           <Text style={styles.about}>
-            تطبيق "مواعيد الصلاة والورد" يساعدك على الحفاظ على صلواتك وأذكارك اليومية،
-            مع إحصائيات يومية وشهرية وسنوية لتتبع تقدمك.
+            تطبيق "الذاكرين" يساعدك على الحفاظ على صلواتك وأذكارك اليومية وورد القرآن الكريم،
+            مع إحصائيات تفصيلية لتتبع تقدمك الروحي.
           </Text>
           <Text style={styles.aboutSmall}>
-            أوقات الصلاة عبر Aladhan API — طريقة أم القرى. تخزين البيانات محلي على جهازك.
+            أوقات الصلاة: Aladhan API — طريقة أم القرى. جميع البيانات محفوظة محلياً على جهازك.
           </Text>
         </View>
       </ScrollView>
@@ -213,44 +362,93 @@ export default function SettingsScreen() {
   );
 }
 
-async function scheduleDailyPrayerNotifications(reminderMin: number = 0) {
+// ---- جدولة جميع التنبيهات ----
+async function scheduleAllNotifications(settings: NotifSettings) {
+  const Notifications = await getNotifications();
+  if (!Notifications) return;
+
   try {
-    const Notifications = await getNotifications();
-    if (!Notifications) return;
+    await Notifications.requestPermissionsAsync();
     await Notifications.cancelAllScheduledNotificationsAsync();
-    const loc = await AsyncStorage.getItem('user_location');
-    if (!loc) return;
-    const p = JSON.parse(loc);
-    const pt = await fetchPrayerTimesFromAladhan(p.lat, p.lng, aladhanDateStr());
-    const timings = pt.timings;
-    const now = new Date();
-    for (const k of PRAYER_ORDER) {
-      const d = parseTime(timings[k]);
-      if (!d) continue;
-      // Pre-reminder
-      if (reminderMin > 0) {
-        const pre = new Date(d.getTime() - reminderMin * 60 * 1000);
-        if (pre.getTime() > now.getTime()) {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: `اقترب وقت صلاة ${PRAYERS_AR[k]}`,
-              body: `باقي ${reminderMin} دقيقة على الأذان 🕌 تهيأ للصلاة`,
-              sound: true,
-            },
-            trigger: { date: pre } as any,
-          });
-        }
-      }
-      // At-time notification
-      if (d.getTime() > now.getTime()) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: `حان الآن وقت صلاة ${PRAYERS_AR[k]}`,
-            body: 'لا تنسَ إتمام الصلاة وتسجيلها في التطبيق 🕌',
-            sound: true,
-          },
-          trigger: { date: d } as any,
-        });
+
+    // تنبيهات أذكار الصباح
+    if (settings.morning_adhkar_enabled) {
+      const [h, m] = settings.morning_adhkar_time.split(':').map(Number);
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🌅 أذكار الصباح',
+          body: 'حان وقت أذكار الصباح — ابدأ يومك بذكر الله',
+          sound: true,
+        },
+        trigger: { hour: h, minute: m, repeats: true } as any,
+      });
+    }
+
+    // تنبيهات أذكار المساء
+    if (settings.evening_adhkar_enabled) {
+      const [h, m] = settings.evening_adhkar_time.split(':').map(Number);
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🌆 أذكار المساء',
+          body: 'حان وقت أذكار المساء — اختم يومك بذكر الله',
+          sound: true,
+        },
+        trigger: { hour: h, minute: m, repeats: true } as any,
+      });
+    }
+
+    // تذكير الورد اليومي
+    if (settings.wird_enabled) {
+      const [h, m] = settings.wird_time.split(':').map(Number);
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📖 ورد القرآن اليومي',
+          body: 'لا تنسَ قراءة وردك اليومي من القرآن الكريم',
+          sound: true,
+        },
+        trigger: { hour: h, minute: m, repeats: true } as any,
+      });
+    }
+
+    // تنبيهات أوقات الصلاة
+    if (settings.prayer_enabled) {
+      const loc = await AsyncStorage.getItem('user_location');
+      if (loc) {
+        const p = JSON.parse(loc);
+        try {
+          const { fetchPrayerTimesFromAladhan, aladhanDateStr, parseTime, PRAYER_ORDER: ORDER } =
+            await import('../utils/api');
+          const { PRAYERS_AR } = await import('../constants/theme');
+          const pt = await fetchPrayerTimesFromAladhan(p.lat, p.lng, aladhanDateStr());
+          const now = new Date();
+          for (const k of ORDER) {
+            const d = parseTime(pt.timings[k]);
+            if (!d) continue;
+            if (settings.prayer_reminder_min > 0) {
+              const pre = new Date(d.getTime() - settings.prayer_reminder_min * 60 * 1000);
+              if (pre.getTime() > now.getTime()) {
+                await Notifications.scheduleNotificationAsync({
+                  content: {
+                    title: `🕌 اقترب وقت صلاة ${PRAYERS_AR[k]}`,
+                    body: `باقي ${settings.prayer_reminder_min} دقيقة — تهيأ للصلاة`,
+                    sound: true,
+                  },
+                  trigger: { date: pre } as any,
+                });
+              }
+            }
+            if (d.getTime() > now.getTime()) {
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: `🕌 حان وقت صلاة ${PRAYERS_AR[k]}`,
+                  body: 'الصلاة خير من النوم — أقم الصلاة',
+                  sound: true,
+                },
+                trigger: { date: d } as any,
+              });
+            }
+          }
+        } catch {}
       }
     }
   } catch (e) {
@@ -260,35 +458,65 @@ async function scheduleDailyPrayerNotifications(reminderMin: number = 0) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  title: { fontSize: 28, fontWeight: '800', color: colors.textPrimary, textAlign: 'right', marginBottom: spacing.md },
-  section: { fontSize: 14, fontWeight: '800', color: colors.textSecondary, textAlign: 'right', marginTop: spacing.lg, marginBottom: 8, letterSpacing: 1 },
-  subsection: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, textAlign: 'right', marginTop: spacing.md, marginBottom: 6 },
-  reminderRow: {
-    flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8,
-    marginTop: 12,
+  pageTitle: {
+    fontSize: 28, fontWeight: '800', color: colors.textPrimary,
+    textAlign: 'right', marginBottom: spacing.md,
   },
-  reminderBtn: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full,
-    backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.border,
+  section: {
+    fontSize: 13, fontWeight: '800', color: colors.textSecondary,
+    textAlign: 'right', marginTop: spacing.lg, marginBottom: 8, letterSpacing: 0.5,
   },
-  reminderBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  reminderText: { color: colors.textSecondary, fontWeight: '700', fontSize: 13 },
-  reminderTextActive: { color: colors.textInverse },
   card: {
     backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md,
     borderWidth: 1, borderColor: colors.border, ...shadow.sm,
   },
   rowBetween: { flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between' },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, textAlign: 'right' },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary, textAlign: 'right' },
   cardSub: { fontSize: 13, color: colors.textSecondary, textAlign: 'right', marginTop: 2 },
+  divider: { height: 1, backgroundColor: colors.border, marginVertical: 12 },
   btn: {
-    marginTop: 12, padding: 12, borderRadius: radius.full,
+    marginTop: 12, paddingVertical: 12, borderRadius: radius.full,
     backgroundColor: colors.primary, alignItems: 'center',
+    flexDirection: 'row-reverse', justifyContent: 'center', gap: 8,
   },
-  btnText: { color: colors.textInverse, fontWeight: '800' },
-  timeRow: { flexDirection: 'row-reverse', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 4 },
+  btnText: { color: colors.textInverse, fontWeight: '800', fontSize: 14 },
+  timeRow: {
+    flexDirection: 'row-reverse', justifyContent: 'space-between',
+    paddingVertical: 12, paddingHorizontal: 4,
+  },
   timeName: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
   timeVal: { fontSize: 15, color: colors.primary, fontWeight: '700' },
+  pillRow: { flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  pill: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full,
+    backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.border,
+  },
+  pillActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  pillText: { color: colors.textSecondary, fontWeight: '700', fontSize: 13 },
+  pillTextActive: { color: colors.textInverse },
+  timePill: {
+    flexDirection: 'row-reverse', alignItems: 'center', gap: 6,
+    backgroundColor: colors.elevated, paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: radius.full, borderWidth: 1, borderColor: colors.primary,
+  },
+  timePillText: { color: colors.primary, fontWeight: '800', fontSize: 15 },
   about: { fontSize: 14, color: colors.textPrimary, textAlign: 'right', lineHeight: 24 },
   aboutSmall: { fontSize: 12, color: colors.textSecondary, textAlign: 'right', marginTop: 10 },
+  // نافذة اختيار الوقت
+  modalBg: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center', justifyContent: 'center', padding: spacing.lg,
+  },
+  modal: {
+    backgroundColor: colors.card, borderRadius: radius.lg,
+    padding: spacing.lg, width: '100%', maxWidth: 360,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, textAlign: 'right', marginBottom: 4 },
+  timeLabel: { fontSize: 12, color: colors.textSecondary, marginBottom: 6, fontWeight: '700' },
+  timeInput: {
+    borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md,
+    paddingHorizontal: 16, paddingVertical: 12, fontSize: 28,
+    color: colors.textPrimary, textAlign: 'center', width: 80,
+  },
+  mBtn: { flex: 1, padding: 12, borderRadius: radius.full, alignItems: 'center' },
 });

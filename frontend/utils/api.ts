@@ -426,3 +426,122 @@ export function formatCountdown(ms: number): string {
   const s = total % 60;
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
+
+// ============================================================
+// نظام الورد اليومي والختمة
+// ============================================================
+
+export interface WirdPlan {
+  type: 'monthly' | 'bimonthly' | 'quarterly' | 'custom'; // شهري / شهرين / 3 أشهر / مخصص
+  pages_per_day: number; // عدد الصفحات اليومية
+  label: string; // وصف الخطة
+  start_date: string; // تاريخ بدء الختمة
+  khatma_bookmark: number; // الصفحة الأخيرة في الختمة الحالية
+}
+
+const KEY_WIRD_PLAN = (deviceId: string) => `wird_plan_${deviceId}`;
+const KEY_KHATMA_BM = (deviceId: string) => `khatma_bookmark_${deviceId}`;
+const KEY_QURAN_DOWNLOADED = 'quran_downloaded';
+
+export const WIRD_PRESETS: { type: WirdPlan['type']; label: string; pages_per_day: number }[] = [
+  { type: 'monthly', label: 'ختمة كل شهر', pages_per_day: 20 },
+  { type: 'bimonthly', label: 'ختمة كل شهرين', pages_per_day: 10 },
+  { type: 'quarterly', label: 'ختمة كل 3 أشهر', pages_per_day: 7 },
+  { type: 'custom', label: 'مخصص', pages_per_day: 0 },
+];
+
+export async function getWirdPlan(deviceId: string): Promise<WirdPlan | null> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_WIRD_PLAN(deviceId));
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+export async function saveWirdPlan(deviceId: string, plan: WirdPlan): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_WIRD_PLAN(deviceId), JSON.stringify(plan));
+  } catch {}
+}
+
+export async function getKhatmaBookmark(deviceId: string): Promise<number> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_KHATMA_BM(deviceId));
+    if (raw) return parseInt(raw, 10) || 1;
+  } catch {}
+  return 1;
+}
+
+export async function saveKhatmaBookmark(deviceId: string, page: number): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_KHATMA_BM(deviceId), String(page));
+  } catch {}
+}
+
+export async function isQuranDownloaded(): Promise<boolean> {
+  try {
+    const val = await AsyncStorage.getItem(KEY_QURAN_DOWNLOADED);
+    return val === '1';
+  } catch {}
+  return false;
+}
+
+export async function setQuranDownloaded(downloaded: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_QURAN_DOWNLOADED, downloaded ? '1' : '0');
+  } catch {}
+}
+
+// حساب الصفحة المستهدفة اليوم بناءً على خطة الورد
+export function getTodayTargetPage(plan: WirdPlan): { from: number; to: number } {
+  const TOTAL_PAGES = 604;
+  const start = new Date(plan.start_date);
+  const today = new Date();
+  const diffDays = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const pagesRead = diffDays * plan.pages_per_day;
+  const from = (pagesRead % TOTAL_PAGES) + 1;
+  const to = Math.min(from + plan.pages_per_day - 1, TOTAL_PAGES);
+  return { from: Math.max(1, from), to: Math.max(1, to) };
+}
+
+// ============================================================
+// إعدادات التنبيهات
+// ============================================================
+
+export interface NotifSettings {
+  prayer_enabled: boolean;
+  prayer_reminder_min: number; // دقائق قبل الصلاة
+  morning_adhkar_enabled: boolean;
+  morning_adhkar_time: string; // HH:MM
+  evening_adhkar_enabled: boolean;
+  evening_adhkar_time: string; // HH:MM
+  wird_enabled: boolean;
+  wird_time: string; // HH:MM
+}
+
+const KEY_NOTIF_SETTINGS = 'notif_settings_v2';
+
+export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
+  prayer_enabled: false,
+  prayer_reminder_min: 10,
+  morning_adhkar_enabled: false,
+  morning_adhkar_time: '06:00',
+  evening_adhkar_enabled: false,
+  evening_adhkar_time: '17:00',
+  wird_enabled: false,
+  wird_time: '08:00',
+};
+
+export async function getNotifSettings(): Promise<NotifSettings> {
+  try {
+    const raw = await AsyncStorage.getItem(KEY_NOTIF_SETTINGS);
+    if (raw) return { ...DEFAULT_NOTIF_SETTINGS, ...JSON.parse(raw) };
+  } catch {}
+  return { ...DEFAULT_NOTIF_SETTINGS };
+}
+
+export async function saveNotifSettings(settings: NotifSettings): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_NOTIF_SETTINGS, JSON.stringify(settings));
+  } catch {}
+}
