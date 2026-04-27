@@ -204,7 +204,7 @@ function AdhkarList({ title, items, onBack, onComplete }: { title: string; items
   const [counts, setCounts] = useState<Record<string, number>>({});
 
   const increment = (d: Dhikr) => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') if ((c[d.id] || 0) + 1 >= d.count) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } else { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
     setCounts((c) => ({ ...c, [d.id]: Math.min((c[d.id] || 0) + 1, d.count) }));
   };
 
