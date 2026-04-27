@@ -368,46 +368,59 @@ async function scheduleAllNotifications(settings: NotifSettings) {
   if (!Notifications) return;
 
   try {
-    await Notifications.requestPermissionsAsync();
+    // طلب الإذن أولاً
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('تنبيه', 'يرجى السماح للتطبيق بإرسال الإشعارات من إعدادات الجهاز');
+      return;
+    }
+
+    // إعداد قناة الإشعارات لأندرويد
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'الذاكرين',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#1a6b3c',
+        sound: 'default',
+      });
+    }
+
     await Notifications.cancelAllScheduledNotificationsAsync();
+
+    // دالة مساعدة لجدولة إشعار يومي متكرر
+    const scheduleDailyNotif = async (title: string, body: string, hour: number, minute: number) => {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          sound: 'default',
+          ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
+        },
+        trigger: {
+          type: 'daily',
+          hour,
+          minute,
+        } as any,
+      });
+    };
 
     // تنبيهات أذكار الصباح
     if (settings.morning_adhkar_enabled) {
       const [h, m] = settings.morning_adhkar_time.split(':').map(Number);
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: '🌅 أذكار الصباح',
-          body: 'حان وقت أذكار الصباح — ابدأ يومك بذكر الله',
-          sound: true,
-        },
-        trigger: { hour: h, minute: m, repeats: true } as any,
-      });
+      await scheduleDailyNotif('🌅 أذكار الصباح', 'حان وقت أذكار الصباح — ابدأ يومك بذكر الله', h, m);
     }
 
     // تنبيهات أذكار المساء
     if (settings.evening_adhkar_enabled) {
       const [h, m] = settings.evening_adhkar_time.split(':').map(Number);
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: '🌆 أذكار المساء',
-          body: 'حان وقت أذكار المساء — اختم يومك بذكر الله',
-          sound: true,
-        },
-        trigger: { hour: h, minute: m, repeats: true } as any,
-      });
+      await scheduleDailyNotif('🌆 أذكار المساء', 'حان وقت أذكار المساء — اختم يومك بذكر الله', h, m);
     }
 
     // تذكير الورد اليومي
     if (settings.wird_enabled) {
       const [h, m] = settings.wird_time.split(':').map(Number);
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: '📖 ورد القرآن اليومي',
-          body: 'لا تنسَ قراءة وردك اليومي من القرآن الكريم',
-          sound: true,
-        },
-        trigger: { hour: h, minute: m, repeats: true } as any,
-      });
+      await scheduleDailyNotif('📖 ورد القرآن اليومي', 'لا تنسَ قراءة وردك اليومي من القرآن الكريم', h, m);
     }
 
     // تنبيهات أوقات الصلاة
@@ -424,6 +437,7 @@ async function scheduleAllNotifications(settings: NotifSettings) {
           for (const k of ORDER) {
             const d = parseTime(pt.timings[k]);
             if (!d) continue;
+            // تذكير قبل الصلاة
             if (settings.prayer_reminder_min > 0) {
               const pre = new Date(d.getTime() - settings.prayer_reminder_min * 60 * 1000);
               if (pre.getTime() > now.getTime()) {
@@ -431,28 +445,34 @@ async function scheduleAllNotifications(settings: NotifSettings) {
                   content: {
                     title: `🕌 اقترب وقت صلاة ${PRAYERS_AR[k]}`,
                     body: `باقي ${settings.prayer_reminder_min} دقيقة — تهيأ للصلاة`,
-                    sound: true,
+                    sound: 'default',
+                    ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
                   },
-                  trigger: { date: pre } as any,
+                  trigger: { type: 'date', date: pre } as any,
                 });
               }
             }
+            // إشعار دخول وقت الصلاة
             if (d.getTime() > now.getTime()) {
               await Notifications.scheduleNotificationAsync({
                 content: {
                   title: `🕌 حان وقت صلاة ${PRAYERS_AR[k]}`,
                   body: 'الصلاة خير من النوم — أقم الصلاة',
-                  sound: true,
+                  sound: 'default',
+                  ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
                 },
-                trigger: { date: d } as any,
+                trigger: { type: 'date', date: d } as any,
               });
             }
           }
         } catch {}
       }
     }
+
+    Alert.alert('✅ تم الحفظ', 'تم جدولة الإشعارات بنجاح');
   } catch (e) {
     console.log('schedule error', e);
+    Alert.alert('خطأ', 'تعذّر جدولة الإشعارات، تأكد من منح الإذن للتطبيق');
   }
 }
 

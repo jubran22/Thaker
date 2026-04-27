@@ -268,7 +268,6 @@ export default function QuranScreen() {
         keyExtractor={(p) => String(p)}
         horizontal
         pagingEnabled
-        inverted
         initialNumToRender={1}
         windowSize={3}
         maxToRenderPerBatch={2}
