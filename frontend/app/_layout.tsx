@@ -75,10 +75,7 @@ function TabsInner() {
       <Tabs.Screen
         name="quran"
         options={{
-          title: 'القرآن',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="book-outline" size={size} color={color} />
-          ),
+          href: null, // مخفي من شريط التنقل - يُفتح من صفحة الأذكار
         }}
       />
     </Tabs>

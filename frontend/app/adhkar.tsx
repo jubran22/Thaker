@@ -79,8 +79,12 @@ export default function AdhkarScreen() {
     return <AdhkarList title="أذكار النوم" items={SLEEP_ADHKAR} onBack={() => setView('hub')} onComplete={() => markAdhkar('sleep')} />;
   if (view === 'tasbih')
     return <TasbihScreen deviceId={deviceId} onBack={() => { setView('hub'); load(); }} />;
-  if (view === 'quran')
-    return <QuranScreen deviceId={deviceId} initial={day?.quran_pages || 0} onBack={() => { setView('hub'); load(); }} />;
+  if (view === 'quran') {
+    // فتح شاشة القرآن الكاملة (المصحف + التحميل + الورد)
+    router.push('/quran');
+    setView('hub');
+    return null;
+  }
   if (view === 'custom')
     return <CustomWirdsScreen deviceId={deviceId} onBack={() => { setView('hub'); load(); }} />;
 
