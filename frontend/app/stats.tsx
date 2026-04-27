@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, shadow } from '../constants/theme';
-import { getDeviceId, apiGet, todayStr } from '../utils/api';
+import { getDeviceId, getStatsSummary, getStatsRange } from '../utils/api';
 
 type Range = 'week' | 'month' | 'year';
 
@@ -19,11 +19,11 @@ export default function StatsScreen() {
     const today = new Date();
     let start = new Date();
     if (r === 'week') start.setDate(today.getDate() - 6);
-    else if (r === 'month') start.setDate(1);
+    else if (r === 'month') start = new Date(today.getFullYear(), today.getMonth(), 1);
     else start = new Date(today.getFullYear(), 0, 1);
     const s = start.toISOString().slice(0, 10);
     const e = today.toISOString().slice(0, 10);
-    const data = await apiGet<any>(`/stats/range?device_id=${id}&start=${s}&end=${e}`);
+    const data = await getStatsRange(id, s, e);
     setRangeData(data);
   }, []);
 
@@ -31,7 +31,7 @@ export default function StatsScreen() {
     try {
       const id = await getDeviceId();
       setDeviceId(id);
-      const s = await apiGet<any>(`/stats/summary?device_id=${id}`);
+      const s = await getStatsSummary(id);
       setSummary(s);
       await loadRange(id, range);
     } catch (e) {

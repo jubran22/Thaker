@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { colors, spacing, radius, shadow } from '../constants/theme';
-import { getDeviceId, apiGet, apiPost } from '../utils/api';
+import { getDeviceId, getQuranBookmark, saveQuranBookmark } from '../utils/api';
 
 const { width, height } = Dimensions.get('window');
 const TOTAL_PAGES = 604;
@@ -37,7 +37,7 @@ export default function QuranScreen() {
     const id = await getDeviceId();
     setDeviceId(id);
     try {
-      const bm = await apiGet<any>(`/quran/bookmark?device_id=${id}`);
+      const bm = await getQuranBookmark(id);
       const p = Math.max(1, Math.min(TOTAL_PAGES, Number(bm?.page) || 1));
       setPage(p);
       setTimeout(() => {
@@ -51,7 +51,7 @@ export default function QuranScreen() {
 
   const saveBookmark = async (p: number) => {
     try {
-      await apiPost('/quran/bookmark', { device_id: deviceId, page: p });
+      await saveQuranBookmark(deviceId, p);
       Alert.alert('تم الحفظ', `تم حفظ علامة عند الصفحة ${p}`);
     } catch {
       Alert.alert('خطأ', 'تعذر حفظ العلامة');

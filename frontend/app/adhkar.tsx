@@ -9,12 +9,12 @@ import {
   TextInput,
   FlatList,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Platform } from 'react-native';
 import { colors, spacing, radius, shadow } from '../constants/theme';
 import {
   MORNING_ADHKAR,
@@ -26,9 +26,14 @@ import {
 } from '../constants/adhkar';
 import {
   getDeviceId,
-  apiGet,
-  apiPost,
-  apiDelete,
+  getDay,
+  toggleAdhkar,
+  addTasbih,
+  setQuranPages,
+  getWirds,
+  addWird,
+  deleteWird,
+  incrementWird,
   todayStr,
 } from '../utils/api';
 
@@ -45,9 +50,9 @@ export default function AdhkarScreen() {
     const id = await getDeviceId();
     setDeviceId(id);
     try {
-      const d = await apiGet(`/day?device_id=${id}&date=${todayStr()}`);
+      const d = await getDay(id, todayStr());
       setDay(d);
-      const ws = await apiGet<any[]>(`/wirds?device_id=${id}`);
+      const ws = await getWirds(id);
       setWirds(ws);
     } catch {}
   }, []);
@@ -55,6 +60,14 @@ export default function AdhkarScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function markAdhkar(kind: string) {
+    try {
+      await toggleAdhkar(deviceId, todayStr(), kind, true);
+      load();
+    } catch {}
+    setView('hub');
+  }
 
   if (view === 'morning')
     return <AdhkarList title="أذكار الصباح" items={MORNING_ADHKAR} onBack={() => setView('hub')} onComplete={() => markAdhkar('morning')} />;
@@ -71,19 +84,6 @@ export default function AdhkarScreen() {
   if (view === 'custom')
     return <CustomWirdsScreen deviceId={deviceId} onBack={() => { setView('hub'); load(); }} />;
 
-  async function markAdhkar(kind: string) {
-    try {
-      await apiPost('/adhkar/toggle', {
-        device_id: deviceId,
-        date: todayStr(),
-        adhkar_type: kind,
-        completed: true,
-      });
-      load();
-    } catch {}
-    setView('hub');
-  }
-
   const adhkar = day?.adhkar || {};
 
   return (
@@ -97,7 +97,7 @@ export default function AdhkarScreen() {
             testID="card-morning"
             icon="sunny"
             title="أذكار الصباح"
-            subtitle={adhkar.morning ? 'تم اليوم ✓' : 'ابدأ اليوم'}
+            subtitle={adhkar.morning ? 'تم اليوم ✓' : 'ابدأ يومك'}
             color="#FDE68A"
             iconColor="#B45309"
             done={!!adhkar.morning}
@@ -143,7 +143,7 @@ export default function AdhkarScreen() {
             testID="card-quran"
             icon="library"
             title={`القرآن (${day?.quran_pages || 0} ص)`}
-            onPress={() => router.push('/quran')}
+            onPress={() => setView('quran')}
           />
         </View>
 
@@ -168,44 +168,25 @@ export default function AdhkarScreen() {
   );
 }
 
-function BigCard({ testID, icon, title, subtitle, color, iconColor, done, onPress }: any) {
-  return (
-    <TouchableOpacity
-      testID={testID}
-      style={[styles.bigCard, { backgroundColor: color }]}
-      onPress={onPress}
-      activeOpacity={0.85}
-    >
-      <Ionicons name={icon} size={32} color={iconColor} />
-      <Text style={styles.bigTitle}>{title}</Text>
-      <Text style={[styles.bigSub, done && { color: colors.success, fontWeight: '800' }]}>
-        {subtitle}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
-function SmallCard({ testID, icon, title, done, onPress }: any) {
-  return (
-    <TouchableOpacity
-      testID={testID}
-      style={[styles.smallCard, done && { borderColor: colors.success, borderWidth: 2 }]}
-      onPress={onPress}
-      activeOpacity={0.85}
-    >
-      <Ionicons name={icon} size={24} color={colors.primary} />
-      <Text style={styles.smallTitle}>{title}</Text>
-      {done && <Ionicons name="checkmark-circle" size={16} color={colors.success} />}
-    </TouchableOpacity>
-  );
-}
-
+// ============================================================
+// مكوّن قائمة الأذكار - مُصلح بالكامل
+// ============================================================
 function AdhkarList({ title, items, onBack, onComplete }: { title: string; items: Dhikr[]; onBack: () => void; onComplete: () => void }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
 
   const increment = (d: Dhikr) => {
-    if (Platform.OS !== 'web') if ((c[d.id] || 0) + 1 >= d.count) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } else { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); };
-    setCounts((c) => ({ ...c, [d.id]: Math.min((c[d.id] || 0) + 1, d.count) }));
+    const currentCount = counts[d.id] || 0;
+    if (currentCount >= d.count) return; // لا تتجاوز العدد المطلوب
+    const newCount = currentCount + 1;
+    // اهتزاز لمسي عند كل ضغطة
+    if (Platform.OS !== 'web') {
+      if (newCount >= d.count) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    }
+    setCounts((prev) => ({ ...prev, [d.id]: newCount }));
   };
 
   const allDone = items.every((d) => (counts[d.id] || 0) >= d.count);
@@ -261,17 +242,21 @@ function AdhkarList({ title, items, onBack, onComplete }: { title: string; items
   );
 }
 
+// ============================================================
+// مكوّن السبحة الإلكترونية - مُصلح بالكامل
+// ============================================================
 function TasbihScreen({ deviceId, onBack }: { deviceId: string; onBack: () => void }) {
   const [phrase, setPhrase] = useState(0);
   const [session, setSession] = useState(0);
-  const [saving, setSaving] = useState(false);
 
   const tap = async () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     const newCount = session + 1;
     setSession(newCount);
     try {
-      await apiPost('/tasbih/add', { device_id: deviceId, date: todayStr(), count: 1 });
+      await addTasbih(deviceId, todayStr(), 1);
     } catch {}
   };
 
@@ -323,18 +308,17 @@ function TasbihScreen({ deviceId, onBack }: { deviceId: string; onBack: () => vo
   );
 }
 
+// ============================================================
+// مكوّن قراءة القرآن - مُصلح بالكامل
+// ============================================================
 function QuranScreen({ deviceId, initial, onBack }: { deviceId: string; initial: number; onBack: () => void }) {
   const [pages, setPages] = useState(initial);
-  const [saving, setSaving] = useState(false);
 
   const save = async (newVal: number) => {
-    setPages(Math.max(0, newVal));
+    const safeVal = Math.max(0, newVal);
+    setPages(safeVal);
     try {
-      await apiPost('/quran/set', {
-        device_id: deviceId,
-        date: todayStr(),
-        pages: Math.max(0, newVal),
-      });
+      await setQuranPages(deviceId, todayStr(), safeVal);
     } catch {}
   };
 
@@ -384,6 +368,9 @@ function QuranScreen({ deviceId, initial, onBack }: { deviceId: string; initial:
   );
 }
 
+// ============================================================
+// مكوّن الأوراد المخصصة - مُصلح بالكامل
+// ============================================================
 function CustomWirdsScreen({ deviceId, onBack }: { deviceId: string; onBack: () => void }) {
   const [wirds, setWirds] = useState<any[]>([]);
   const [day, setDay] = useState<any>(null);
@@ -393,9 +380,9 @@ function CustomWirdsScreen({ deviceId, onBack }: { deviceId: string; onBack: () 
 
   const load = useCallback(async () => {
     try {
-      const ws = await apiGet<any[]>(`/wirds?device_id=${deviceId}`);
+      const ws = await getWirds(deviceId);
       setWirds(ws);
-      const d = await apiGet(`/day?device_id=${deviceId}&date=${todayStr()}`);
+      const d = await getDay(deviceId, todayStr());
       setDay(d);
     } catch {}
   }, [deviceId]);
@@ -405,11 +392,7 @@ function CustomWirdsScreen({ deviceId, onBack }: { deviceId: string; onBack: () 
   const add = async () => {
     if (!title.trim()) return;
     try {
-      await apiPost('/wirds', {
-        device_id: deviceId,
-        title: title.trim(),
-        target: parseInt(target, 10) || 1,
-      });
+      await addWird(deviceId, title.trim(), parseInt(target, 10) || 1);
       setTitle(''); setTarget('1'); setShowAdd(false); load();
     } catch (e: any) {
       Alert.alert('خطأ', e.message);
@@ -418,12 +401,7 @@ function CustomWirdsScreen({ deviceId, onBack }: { deviceId: string; onBack: () 
 
   const inc = async (w: any) => {
     try {
-      await apiPost('/wirds/log', {
-        device_id: deviceId,
-        date: todayStr(),
-        wird_id: w.id,
-        count: 1,
-      });
+      await incrementWird(deviceId, todayStr(), w.id);
       load();
     } catch {}
   };
@@ -434,7 +412,7 @@ function CustomWirdsScreen({ deviceId, onBack }: { deviceId: string; onBack: () 
       {
         text: 'حذف', style: 'destructive',
         onPress: async () => {
-          await apiDelete(`/wirds/${w.id}?device_id=${deviceId}`);
+          await deleteWird(deviceId, w.id);
           load();
         },
       },
@@ -464,7 +442,7 @@ function CustomWirdsScreen({ deviceId, onBack }: { deviceId: string; onBack: () 
           </View>
         }
         renderItem={({ item }) => {
-          const c = day?.custom_wirds?.[item.id] || 0;
+          const c = day?.wird_progress?.[item.id] || 0;
           const done = c >= item.target;
           return (
             <View style={[styles.wirdCard, done && { borderColor: colors.success, borderWidth: 2 }]}>
@@ -519,6 +497,44 @@ function CustomWirdsScreen({ deviceId, onBack }: { deviceId: string; onBack: () 
   );
 }
 
+// ============================================================
+// مكوّنات مساعدة
+// ============================================================
+function BigCard({ testID, icon, title, subtitle, color, iconColor, done, onPress }: any) {
+  return (
+    <TouchableOpacity
+      testID={testID}
+      style={[styles.bigCard, { backgroundColor: color }]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      <Ionicons name={icon} size={32} color={iconColor} />
+      <Text style={styles.bigTitle}>{title}</Text>
+      <Text style={[styles.bigSub, done && { color: colors.success, fontWeight: '800' }]}>
+        {subtitle}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function SmallCard({ testID, icon, title, done, onPress }: any) {
+  return (
+    <TouchableOpacity
+      testID={testID}
+      style={[styles.smallCard, done && { borderColor: colors.success, borderWidth: 2 }]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      <Ionicons name={icon} size={24} color={colors.primary} />
+      <Text style={styles.smallTitle}>{title}</Text>
+      {done && <Ionicons name="checkmark-circle" size={16} color={colors.success} />}
+    </TouchableOpacity>
+  );
+}
+
+// ============================================================
+// الأنماط
+// ============================================================
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.lg, paddingBottom: 40 },

@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, spacing, radius, shadow, PRAYERS_AR, PRAYER_ORDER } from '../constants/theme';
-import { apiGet, aladhanDateStr, parseTime, formatTime12 } from '../utils/api';
+import { fetchPrayerTimesFromAladhan, aladhanDateStr, parseTime, formatTime12 } from '../utils/api';
 
 // Dynamic import for expo-notifications (not supported in Expo Go SDK 53+).
 // We only use LOCAL notifications which still work in dev/production builds.
@@ -35,9 +35,7 @@ export default function SettingsScreen() {
       const p = JSON.parse(loc);
       setCity(p.city || '');
       try {
-        const pt = await apiGet<any>(
-          `/prayer-times?lat=${p.lat}&lng=${p.lng}&date=${aladhanDateStr()}`
-        );
+        const pt = await fetchPrayerTimesFromAladhan(p.lat, p.lng, aladhanDateStr());
         setTimes(pt);
       } catch {}
     }
@@ -110,9 +108,7 @@ export default function SettingsScreen() {
         JSON.stringify({ lat: loc.coords.latitude, lng: loc.coords.longitude, city: cityName })
       );
       setCity(cityName);
-      const pt = await apiGet<any>(
-        `/prayer-times?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}&date=${aladhanDateStr()}`
-      );
+      const pt = await fetchPrayerTimesFromAladhan(loc.coords.latitude, loc.coords.longitude, aladhanDateStr());
       setTimes(pt);
       if (notifEnabled) await scheduleDailyPrayerNotifications(reminderMin);
       Alert.alert('تم', 'تم تحديث الموقع بنجاح');
@@ -225,9 +221,7 @@ async function scheduleDailyPrayerNotifications(reminderMin: number = 0) {
     const loc = await AsyncStorage.getItem('user_location');
     if (!loc) return;
     const p = JSON.parse(loc);
-    const pt = await apiGet<any>(
-      `/prayer-times?lat=${p.lat}&lng=${p.lng}&date=${aladhanDateStr()}`
-    );
+    const pt = await fetchPrayerTimesFromAladhan(p.lat, p.lng, aladhanDateStr());
     const timings = pt.timings;
     const now = new Date();
     for (const k of PRAYER_ORDER) {
