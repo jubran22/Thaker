@@ -291,7 +291,7 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>الصلوات الخمس</Text>
           <View style={styles.prayerRow}>
-            {PRAYER_ORDER.map((p) => {
+            {[...PRAYER_ORDER].reverse().map((p) => {
               const time = formatTime12(times?.timings[p]);
               const done = !!prayers[p];
               const isNext = nextPrayer?.key === p;
