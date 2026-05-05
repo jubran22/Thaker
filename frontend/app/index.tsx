@@ -8,6 +8,8 @@ import {
   ImageBackground,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,8 +22,10 @@ import {
   getDay,
   togglePrayer as localTogglePrayer,
   toggleSunnah as localToggleSunnah,
+  setPrayerStatus as localSetPrayerStatus,
   fetchPrayerTimes,
   PrayerTimes,
+  PrayerStatus,
   todayStr,
   aladhanDateStr,
   parseTime,
@@ -31,6 +35,28 @@ import {
 
 const HERO_IMAGE =
   'https://images.pexels.com/photos/30466249/pexels-photo-30466249.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940';
+
+// ألوان حالة الصلاة
+const STATUS_COLORS: Record<PrayerStatus, string> = {
+  none: colors.textTertiary,
+  masjid: '#16A34A',   // أخضر
+  home: '#2563EB',     // أزرق
+  qadaa: '#EA580C',    // برتقالي
+};
+
+const STATUS_ICONS: Record<PrayerStatus, string> = {
+  none: 'ellipse-outline',
+  masjid: 'business',
+  home: 'home',
+  qadaa: 'time',
+};
+
+const STATUS_LABELS: Record<PrayerStatus, string> = {
+  none: 'لم تُصلَّ',
+  masjid: 'مسجد',
+  home: 'بيت',
+  qadaa: 'قضاء',
+};
 
 export default function HomeScreen() {
   const [times, setTimes] = useState<PrayerTimes | null>(null);
@@ -42,6 +68,9 @@ export default function HomeScreen() {
   const [prayers, setPrayers] = useState<Record<string, boolean>>({
     fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false,
   });
+  const [prayerStatus, setPrayerStatus] = useState<Record<string, PrayerStatus>>({
+    fajr: 'none', dhuhr: 'none', asr: 'none', maghrib: 'none', isha: 'none',
+  });
   const [sunnah, setSunnah] = useState<Record<string, { before: boolean; after: boolean }>>({
     fajr: { before: false, after: false },
     dhuhr: { before: false, after: false },
@@ -52,13 +81,18 @@ export default function HomeScreen() {
   const [now, setNow] = useState(new Date());
   const [error, setError] = useState<string>('');
 
+  // Modal حالة الصلاة
+  const [statusModal, setStatusModal] = useState<{ visible: boolean; prayer: string }>({
+    visible: false,
+    prayer: '',
+  });
+
   // ---- جلب أوقات الصلاة مباشرة من Aladhan ----
   const fetchTimesForLocation = useCallback(async (lat: number, lng: number, cityName: string) => {
     try {
       setCity(cityName);
       const pt = await fetchPrayerTimes(lat, lng, aladhanDateStr());
       setTimes(pt);
-      // استخراج التاريخ الهجري
       if (pt.date?.hijri) {
         setHijriDate({
           day: pt.date.hijri.date.split('-')[0],
@@ -109,12 +143,11 @@ export default function HomeScreen() {
       const id = await getDeviceId();
       setDeviceId(id);
 
-      // 1) تحميل بيانات اليوم المحفوظة محلياً
       const day = await getDay(id, todayStr());
       if (day?.prayers) setPrayers(day.prayers);
+      if (day?.prayer_status) setPrayerStatus(day.prayer_status);
       if (day?.sunnah) setSunnah(day.sunnah);
 
-      // 2) تحميل أوقات الصلاة من الموقع المحفوظ أو الافتراضي
       const saved = await AsyncStorage.getItem('user_location');
       let lat = 21.3891;
       let lng = 39.8579;
@@ -130,7 +163,6 @@ export default function HomeScreen() {
       await fetchTimesForLocation(lat, lng, cityName);
       setLoading(false);
 
-      // 3) في الخلفية: تحديث الموقع تلقائياً إذا لم يكن محفوظاً
       if (!saved) {
         (async () => {
           try {
@@ -189,11 +221,24 @@ export default function HomeScreen() {
     return null;
   }, [times, now]);
 
-  // ---- تبديل حالة الصلاة ----
+  // ---- تبديل حالة الصلاة (تأشير/إلغاء) ----
   const togglePrayer = async (prayer: string) => {
     const newVal = !prayers[prayer];
     setPrayers((p) => ({ ...p, [prayer]: newVal }));
+    if (!newVal) {
+      setPrayerStatus((s) => ({ ...s, [prayer]: 'none' }));
+    }
     await localTogglePrayer(deviceId, todayStr(), prayer, newVal);
+  };
+
+  // ---- تعيين حالة الصلاة (مسجد/بيت/قضاء) ----
+  const handleSetStatus = async (prayer: string, status: PrayerStatus) => {
+    setPrayerStatus((s) => ({ ...s, [prayer]: status }));
+    if (status !== 'none') {
+      setPrayers((p) => ({ ...p, [prayer]: true }));
+    }
+    setStatusModal({ visible: false, prayer: '' });
+    await localSetPrayerStatus(deviceId, todayStr(), prayer, status);
   };
 
   // ---- تبديل السنة الراتبة ----
@@ -239,6 +284,62 @@ export default function HomeScreen() {
   }
 
   const countdown = nextPrayer ? nextPrayer.date.getTime() - now.getTime() : 0;
+
+  // ترتيب الصلوات: صف أول (فجر يمين + ظهر يسار)، صف ثانٍ (عصر + مغرب + عشاء)
+  const row1 = ['fajr', 'dhuhr'];
+  const row2 = ['asr', 'maghrib', 'isha'];
+
+  const renderPrayerCard = (p: string) => {
+    const time = formatTime12(times?.timings[p]);
+    const done = !!prayers[p];
+    const isNext = nextPrayer?.key === p;
+    const status = (prayerStatus[p] || 'none') as PrayerStatus;
+    const statusColor = STATUS_COLORS[status];
+    const statusIcon = STATUS_ICONS[status] as any;
+
+    return (
+      <View key={p} style={styles.prayerCardWrapper}>
+        {/* بطاقة الصلاة الرئيسية */}
+        <TouchableOpacity
+          testID={`prayer-card-${p}`}
+          onPress={() => togglePrayer(p)}
+          onLongPress={() => setStatusModal({ visible: true, prayer: p })}
+          activeOpacity={0.85}
+          style={[
+            styles.prayerCard,
+            done && { backgroundColor: '#ECFDF5', borderColor: statusColor },
+            isNext && !done && styles.prayerCardNext,
+          ]}
+        >
+          <Ionicons
+            name={done ? statusIcon : 'ellipse-outline'}
+            size={26}
+            color={done ? statusColor : isNext ? colors.gold : colors.textTertiary}
+          />
+          <Text style={[styles.prayerName, done && { color: statusColor }]}>
+            {PRAYERS_AR[p]}
+          </Text>
+          <Text style={styles.prayerTime}>{time}</Text>
+          {/* شارة الحالة */}
+          {done && status !== 'none' && (
+            <View style={[styles.statusBadge, { backgroundColor: statusColor + '22', borderColor: statusColor }]}>
+              <Text style={[styles.statusBadgeText, { color: statusColor }]}>
+                {STATUS_LABELS[status]}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        {/* زر تغيير الحالة */}
+        <TouchableOpacity
+          style={styles.statusBtn}
+          onPress={() => setStatusModal({ visible: true, prayer: p })}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="chevron-down" size={12} color={colors.textTertiary} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.root} testID="home-screen">
@@ -289,36 +390,17 @@ export default function HomeScreen() {
 
         {/* PRAYER TRACKER */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>الصلوات الخمس</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>الصلوات الخمس</Text>
+            <Text style={styles.sectionHint}>اضغط لتأشير · اضغط مطولاً لتحديد الحالة</Text>
+          </View>
+          {/* الصف الأول: فجر + ظهر */}
           <View style={styles.prayerRow}>
-            {[...PRAYER_ORDER].reverse().map((p) => {
-              const time = formatTime12(times?.timings[p]);
-              const done = !!prayers[p];
-              const isNext = nextPrayer?.key === p;
-              return (
-                <TouchableOpacity
-                  key={p}
-                  testID={`prayer-card-${p}`}
-                  onPress={() => togglePrayer(p)}
-                  activeOpacity={0.85}
-                  style={[
-                    styles.prayerCard,
-                    done && styles.prayerCardDone,
-                    isNext && !done && styles.prayerCardNext,
-                  ]}
-                >
-                  <Ionicons
-                    name={done ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={26}
-                    color={done ? colors.success : isNext ? colors.gold : colors.textTertiary}
-                  />
-                  <Text style={[styles.prayerName, done && { color: colors.success }]}>
-                    {PRAYERS_AR[p]}
-                  </Text>
-                  <Text style={styles.prayerTime}>{time}</Text>
-                </TouchableOpacity>
-              );
-            })}
+            {row1.map(renderPrayerCard)}
+          </View>
+          {/* الصف الثاني: عصر + مغرب + عشاء */}
+          <View style={[styles.prayerRow, { marginTop: 8 }]}>
+            {row2.map(renderPrayerCard)}
           </View>
         </View>
 
@@ -346,7 +428,7 @@ export default function HomeScreen() {
         {/* SUNAN RAWATIB */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>السنن الرواتب</Text>
-          <Text style={styles.sectionHint}>اضغط لتسجيل السنن قبل/بعد كل صلاة</Text>
+          <Text style={styles.sectionHintSub}>اضغط لتسجيل السنن قبل/بعد كل صلاة</Text>
           <View style={styles.listCard}>
             {PRAYER_ORDER.map((p, idx) => {
               const info = SUNAN_RAWATIB[p];
@@ -403,6 +485,62 @@ export default function HomeScreen() {
 
         <View style={{ height: 24 }} />
       </ScrollView>
+
+      {/* Modal حالة الصلاة */}
+      <Modal
+        visible={statusModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setStatusModal({ visible: false, prayer: '' })}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setStatusModal({ visible: false, prayer: '' })}
+        >
+          <Pressable style={styles.modalBox} onPress={() => {}}>
+            <Text style={styles.modalTitle}>
+              حالة صلاة {PRAYERS_AR[statusModal.prayer] || ''}
+            </Text>
+            <Text style={styles.modalSubtitle}>اختر كيف أديت هذه الصلاة</Text>
+
+            {(['masjid', 'home', 'qadaa', 'none'] as PrayerStatus[]).map((s) => {
+              const isSelected = prayerStatus[statusModal.prayer] === s;
+              return (
+                <TouchableOpacity
+                  key={s}
+                  style={[
+                    styles.statusOption,
+                    isSelected && { backgroundColor: STATUS_COLORS[s] + '18', borderColor: STATUS_COLORS[s] },
+                  ]}
+                  onPress={() => handleSetStatus(statusModal.prayer, s)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={STATUS_ICONS[s] as any}
+                    size={22}
+                    color={STATUS_COLORS[s]}
+                  />
+                  <Text style={[styles.statusOptionText, { color: STATUS_COLORS[s] }]}>
+                    {s === 'masjid' ? '🕌 في المسجد' :
+                     s === 'home' ? '🏠 في البيت' :
+                     s === 'qadaa' ? '⏰ قضاء' : '✕ إلغاء التأشير'}
+                  </Text>
+                  {isSelected && (
+                    <Ionicons name="checkmark-circle" size={18} color={STATUS_COLORS[s]} style={{ marginRight: 'auto' as any }} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+
+            <TouchableOpacity
+              style={styles.modalCancel}
+              onPress={() => setStatusModal({ visible: false, prayer: '' })}
+            >
+              <Text style={styles.modalCancelText}>إغلاق</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -446,8 +584,47 @@ const styles = StyleSheet.create({
   countdownLabel: { color: colors.textInverseMuted, fontSize: 11 },
   countdown: { color: colors.textInverse, fontSize: 26, fontWeight: '800', letterSpacing: 2, marginTop: 2 },
   section: { paddingHorizontal: spacing.lg, marginTop: spacing.lg },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, marginBottom: spacing.md, textAlign: 'right' },
-  sectionHint: { fontSize: 12, color: colors.textSecondary, textAlign: 'right', marginTop: -8, marginBottom: spacing.sm },
+  sectionHeader: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, textAlign: 'right' },
+  sectionHint: { fontSize: 11, color: colors.textTertiary, textAlign: 'left' },
+  sectionHintSub: { fontSize: 12, color: colors.textSecondary, textAlign: 'right', marginTop: -8, marginBottom: spacing.sm },
+  prayerRow: { flexDirection: 'row-reverse', gap: 8 },
+  prayerCardWrapper: { flex: 1, alignItems: 'center', gap: 4 },
+  prayerCard: {
+    width: '100%',
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  prayerCardNext: { borderColor: colors.gold, backgroundColor: colors.goldBg },
+  prayerName: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginTop: 2 },
+  prayerTime: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
+  statusBadge: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  statusBadgeText: { fontSize: 10, fontWeight: '700' },
+  statusBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 12,
+    borderRadius: radius.full,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   sunnahRow: {
     flexDirection: 'row-reverse',
     justifyContent: 'space-between',
@@ -466,23 +643,6 @@ const styles = StyleSheet.create({
   },
   sunnahPillDone: { backgroundColor: '#ECFDF5', borderColor: colors.success },
   sunnahPillText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
-  prayerRow: { flexDirection: 'row-reverse', gap: 8, flexWrap: 'wrap' },
-  prayerCard: {
-    flex: 1,
-    minWidth: 90,
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.sm,
-  },
-  prayerCardDone: { backgroundColor: '#ECFDF5', borderColor: colors.success },
-  prayerCardNext: { borderColor: colors.gold, backgroundColor: colors.goldBg },
-  prayerName: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginTop: 2 },
-  prayerTime: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
   listCard: {
     backgroundColor: colors.card,
     borderRadius: radius.lg,
@@ -499,4 +659,61 @@ const styles = StyleSheet.create({
   },
   listName: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
   listTime: { fontSize: 15, color: colors.primary, fontWeight: '700' },
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalBox: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: 32,
+    gap: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  statusOption: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.elevated,
+  },
+  statusOptionText: {
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'right',
+  },
+  modalCancel: {
+    marginTop: 4,
+    paddingVertical: 14,
+    borderRadius: radius.full,
+    backgroundColor: colors.elevated,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
 });
