@@ -34,6 +34,7 @@ import {
   addWird,
   deleteWird,
   incrementWird,
+  setFasting,
   todayStr,
 } from '../utils/api';
 
@@ -150,6 +151,16 @@ export default function AdhkarScreen() {
             onPress={() => setView('quran')}
           />
         </View>
+
+        {/* بطاقة الصيام */}
+        <FastingCard
+          fasting={!!day?.fasting}
+          onToggle={async () => {
+            const newVal = !day?.fasting;
+            await setFasting(deviceId, todayStr(), newVal);
+            load();
+          }}
+        />
 
         <TouchableOpacity
           testID="card-custom"
@@ -535,6 +546,97 @@ function SmallCard({ testID, icon, title, done, onPress }: any) {
     </TouchableOpacity>
   );
 }
+
+// بطاقة الصيام
+function FastingCard({ fasting, onToggle }: { fasting: boolean; onToggle: () => void }) {
+  return (
+    <TouchableOpacity
+      testID="card-fasting"
+      onPress={onToggle}
+      activeOpacity={0.85}
+      style={[
+        fastingStyles.card,
+        fasting && fastingStyles.cardDone,
+      ]}
+    >
+      <View style={fastingStyles.right}>
+        <View style={[fastingStyles.iconWrap, fasting && fastingStyles.iconWrapDone]}>
+          <Text style={fastingStyles.iconEmoji}>🌙</Text>
+        </View>
+        <View>
+          <Text style={fastingStyles.title}>صيام اليوم</Text>
+          <Text style={[fastingStyles.sub, fasting && { color: colors.success }]}>
+            {fasting ? 'صمت اليوم ✓' : 'اضغط لتسجيل الصيام'}
+          </Text>
+        </View>
+      </View>
+      <View style={[fastingStyles.badge, fasting && fastingStyles.badgeDone]}>
+        <Ionicons
+          name={fasting ? 'checkmark-circle' : 'ellipse-outline'}
+          size={28}
+          color={fasting ? colors.success : colors.textTertiary}
+        />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+const fastingStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  cardDone: {
+    backgroundColor: '#ECFDF5',
+    borderColor: colors.success,
+  },
+  right: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  iconWrap: {
+    width: 48, height: 48,
+    borderRadius: 24,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  iconWrapDone: { backgroundColor: '#DCFCE7' },
+  iconEmoji: { fontSize: 24 },
+  title: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    textAlign: 'right',
+  },
+  sub: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'right',
+    marginTop: 2,
+  },
+  badge: {
+    width: 44, height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.elevated,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  badgeDone: {
+    backgroundColor: '#DCFCE7',
+    borderColor: colors.success,
+  },
+});
 
 // ============================================================
 // الأنماط
