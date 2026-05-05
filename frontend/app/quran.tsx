@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,9 @@ import {
   ScrollView,
   ProgressBarAndroid,
   Platform,
+  Pressable,
 } from 'react-native';
+import { SURAHS, SurahInfo } from '../constants/surahs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -73,8 +75,28 @@ export default function QuranScreen() {
   const [khatmaPage, setKhatmaPage] = useState(1);
   const [customPages, setCustomPages] = useState('');
   const [todayTarget, setTodayTarget] = useState<{ from: number; to: number } | null>(null);
+  const [showSurahIndex, setShowSurahIndex] = useState(false);
+  const [surahSearch, setSurahSearch] = useState('');
   const listRef = useRef<FlatList>(null);
   const downloadAbortRef = useRef(false);
+
+  // قائمة السور المفلترة
+  const filteredSurahs = useMemo(() => {
+    const q = surahSearch.trim();
+    if (!q) return SURAHS;
+    return SURAHS.filter((s) =>
+      s.name.includes(q) || String(s.number).includes(q)
+    );
+  }, [surahSearch]);
+
+  // الانتقال لصفحة سورة
+  const goToSurah = (surah: SurahInfo) => {
+    const p = surah.page;
+    listRef.current?.scrollToIndex({ index: p - 1, animated: false });
+    setPage(p);
+    setShowSurahIndex(false);
+    setSurahSearch('');
+  };
 
   const load = useCallback(async () => {
     const id = await getDeviceId();
@@ -332,6 +354,12 @@ export default function QuranScreen() {
               <Text style={styles.bottomBtnText}>علامة الختمة</Text>
             </TouchableOpacity>
 
+            {/* زر فهرس السور */}
+            <TouchableOpacity onPress={() => setShowSurahIndex(true)} style={styles.bottomBtn}>
+              <Ionicons name="list" size={18} color={colors.textInverse} />
+              <Text style={styles.bottomBtnText}>السور</Text>
+            </TouchableOpacity>
+
             {/* زر الانتقال */}
             <TouchableOpacity onPress={() => setJumpOpen(true)} style={styles.bottomBtn}>
               <Ionicons name="search" size={18} color={colors.textInverse} />
@@ -355,6 +383,73 @@ export default function QuranScreen() {
           </SafeAreaView>
         </>
       )}
+
+      {/* نافذة فهرس السور */}
+      <Modal visible={showSurahIndex} transparent animationType="slide" onRequestClose={() => setShowSurahIndex(false)}>
+        <Pressable style={styles.surahOverlay} onPress={() => setShowSurahIndex(false)}>
+          <Pressable style={styles.surahSheet} onPress={() => {}}>
+            {/* رأس الفهرس */}
+            <View style={styles.surahHeader}>
+              <Text style={styles.surahHeaderTitle}>فهرس السور</Text>
+              <TouchableOpacity onPress={() => setShowSurahIndex(false)} style={styles.surahCloseBtn}>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* خانة البحث */}
+            <View style={styles.surahSearchBox}>
+              <Ionicons name="search" size={18} color={colors.textTertiary} />
+              <TextInput
+                value={surahSearch}
+                onChangeText={setSurahSearch}
+                placeholder="ابحث عن سورة..."
+                placeholderTextColor={colors.textTertiary}
+                style={styles.surahSearchInput}
+                textAlign="right"
+              />
+              {surahSearch.length > 0 && (
+                <TouchableOpacity onPress={() => setSurahSearch('')}>
+                  <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* قائمة السور */}
+            <FlatList
+              data={filteredSurahs}
+              keyExtractor={(s) => String(s.number)}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item, index }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.surahItem,
+                    index > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
+                  ]}
+                  onPress={() => goToSurah(item)}
+                  activeOpacity={0.7}
+                >
+                  {/* رقم السورة */}
+                  <View style={styles.surahNumBadge}>
+                    <Text style={styles.surahNumText}>{item.number}</Text>
+                  </View>
+                  {/* اسم السورة ومعلوماتها */}
+                  <View style={styles.surahInfo}>
+                    <Text style={styles.surahName}>{item.name}</Text>
+                    <Text style={styles.surahMeta}>{item.ayahs} آية · {item.type} · ص{item.page}</Text>
+                  </View>
+                  <Ionicons name="chevron-back" size={16} color={colors.textTertiary} />
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={{ padding: 32, alignItems: 'center' }}>
+                  <Text style={{ color: colors.textTertiary, fontSize: 15 }}>لا توجد نتائج</Text>
+                </View>
+              }
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* نافذة الانتقال لصفحة */}
       <Modal visible={jumpOpen} transparent animationType="fade">
@@ -609,4 +704,90 @@ const styles = StyleSheet.create({
     borderRadius: radius.full, backgroundColor: '#FEE2E2',
   },
   cancelBtnText: { color: '#DC2626', fontWeight: '800', fontSize: 15 },
+
+  // فهرس السور
+  surahOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  surahSheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '88%',
+    paddingBottom: 24,
+  },
+  surahHeader: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  surahHeaderTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  surahCloseBtn: {
+    width: 36, height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.elevated,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  surahSearchBox: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: spacing.lg,
+    marginVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: colors.elevated,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  surahSearchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.textPrimary,
+    paddingVertical: 0,
+  },
+  surahItem: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: spacing.lg,
+  },
+  surahNumBadge: {
+    width: 40, height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary + '15',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+  },
+  surahNumText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  surahInfo: { flex: 1, alignItems: 'flex-end' },
+  surahName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textAlign: 'right',
+  },
+  surahMeta: {
+    fontSize: 12,
+    color: colors.textTertiary,
+    textAlign: 'right',
+    marginTop: 2,
+  },
 });
