@@ -24,15 +24,19 @@ const KEY_WIRDS = (deviceId: string) => `wirds_${deviceId}`;
 // ============================================================
 // بنية بيانات اليوم
 // ============================================================
+export type PrayerStatus = 'none' | 'masjid' | 'home' | 'qadaa';
+
 export interface DayDoc {
   device_id: string;
   date: string;
   prayers: Record<string, boolean>;
+  prayer_status: Record<string, PrayerStatus>;
   sunnah: Record<string, { before: boolean; after: boolean }>;
   adhkar: Record<string, boolean>;
   tasbih_count: number;
   quran_pages: number;
   wird_progress: Record<string, number>;
+  fasting: boolean;
 }
 
 function defaultDayDoc(deviceId: string, date: string): DayDoc {
@@ -40,6 +44,7 @@ function defaultDayDoc(deviceId: string, date: string): DayDoc {
     device_id: deviceId,
     date,
     prayers: { fajr: false, dhuhr: false, asr: false, maghrib: false, isha: false },
+    prayer_status: { fajr: 'none', dhuhr: 'none', asr: 'none', maghrib: 'none', isha: 'none' },
     sunnah: {
       fajr: { before: false, after: false },
       dhuhr: { before: false, after: false },
@@ -51,6 +56,7 @@ function defaultDayDoc(deviceId: string, date: string): DayDoc {
     tasbih_count: 0,
     quran_pages: 0,
     wird_progress: {},
+    fasting: false,
   };
 }
 
@@ -86,6 +92,43 @@ export async function togglePrayer(
 ): Promise<DayDoc> {
   const doc = await getDay(deviceId, date);
   doc.prayers[prayer] = completed;
+  // إذا تم إلغاء الصلاة أعد الحالة إلى none
+  if (!completed) {
+    if (!doc.prayer_status) doc.prayer_status = {};
+    doc.prayer_status[prayer] = 'none';
+  }
+  await saveDay(doc);
+  return doc;
+}
+
+// ============================================================
+// تعيين حالة الصلاة (مسجد / بيت / قضاء)
+// ============================================================
+export async function setPrayerStatus(
+  deviceId: string,
+  date: string,
+  prayer: string,
+  status: PrayerStatus
+): Promise<DayDoc> {
+  const doc = await getDay(deviceId, date);
+  if (!doc.prayer_status) doc.prayer_status = {};
+  doc.prayer_status[prayer] = status;
+  // إذا اختار حالة غير none فعلّم الصلاة كمؤداة
+  if (status !== 'none') doc.prayers[prayer] = true;
+  await saveDay(doc);
+  return doc;
+}
+
+// ============================================================
+// تسجيل الصيام
+// ============================================================
+export async function setFasting(
+  deviceId: string,
+  date: string,
+  fasting: boolean
+): Promise<DayDoc> {
+  const doc = await getDay(deviceId, date);
+  doc.fasting = fasting;
   await saveDay(doc);
   return doc;
 }
@@ -204,19 +247,31 @@ export async function incrementWird(
 // ============================================================
 export interface DayScore {
   prayers_done: number;
+  prayers_masjid: number;
+  prayers_home: number;
+  prayers_qadaa: number;
   adhkar_done: number;
   tasbih_count: number;
   quran_pages: number;
+  fasting: boolean;
 }
 
 function scoreDoc(doc: DayDoc): DayScore {
   const prayers_done = Object.values(doc.prayers || {}).filter(Boolean).length;
   const adhkar_done = Object.values(doc.adhkar || {}).filter(Boolean).length;
+  const statuses = doc.prayer_status || {};
+  const prayers_masjid = Object.values(statuses).filter((s) => s === 'masjid').length;
+  const prayers_home = Object.values(statuses).filter((s) => s === 'home').length;
+  const prayers_qadaa = Object.values(statuses).filter((s) => s === 'qadaa').length;
   return {
     prayers_done,
+    prayers_masjid,
+    prayers_home,
+    prayers_qadaa,
     adhkar_done,
     tasbih_count: doc.tasbih_count || 0,
     quran_pages: doc.quran_pages || 0,
+    fasting: doc.fasting || false,
   };
 }
 
@@ -258,11 +313,15 @@ export async function getStatsRange(deviceId: string, start: string, end: string
   const per_day: any[] = [];
   const totals = {
     prayers_done: 0,
+    prayers_masjid: 0,
+    prayers_home: 0,
+    prayers_qadaa: 0,
     adhkar_done: 0,
     tasbih_count: 0,
     quran_pages: 0,
     days_tracked: 0,
     days_full_prayers: 0,
+    days_fasting: 0,
   };
 
   const startDate = new Date(start);
@@ -282,11 +341,15 @@ export async function getStatsRange(deviceId: string, start: string, end: string
     if (hasData) {
       per_day.push({ date: ds, ...score });
       totals.prayers_done += score.prayers_done;
+      totals.prayers_masjid += score.prayers_masjid;
+      totals.prayers_home += score.prayers_home;
+      totals.prayers_qadaa += score.prayers_qadaa;
       totals.adhkar_done += score.adhkar_done;
       totals.tasbih_count += score.tasbih_count;
       totals.quran_pages += score.quran_pages;
       totals.days_tracked++;
       if (score.prayers_done === 5) totals.days_full_prayers++;
+      if (score.fasting) totals.days_fasting++;
     }
     cur.setDate(cur.getDate() + 1);
   }
