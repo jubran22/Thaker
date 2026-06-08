@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, textAlign: 'right' },
-  sectionHint: { fontSize: 11, color: colors.textTertiary, textAlign: 'left' },
+  sectionHint: { fontSize: 11, color: colors.textTertiary, textAlign: 'right' },
   sectionHintSub: { fontSize: 12, color: colors.textSecondary, textAlign: 'right', marginTop: -8, marginBottom: spacing.sm },
   prayerRow: { flexDirection: 'row-reverse', gap: 8 },
   prayerCardWrapper: { flex: 1, alignItems: 'center', gap: 4 },
