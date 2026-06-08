@@ -250,6 +250,7 @@ export interface DayScore {
   prayers_masjid: number;
   prayers_home: number;
   prayers_qadaa: number;
+  sunnah_done: number;   // عدد السنن الرواتب المؤداة
   adhkar_done: number;
   tasbih_count: number;
   quran_pages: number;
@@ -263,11 +264,20 @@ function scoreDoc(doc: DayDoc): DayScore {
   const prayers_masjid = Object.values(statuses).filter((s) => s === 'masjid').length;
   const prayers_home = Object.values(statuses).filter((s) => s === 'home').length;
   const prayers_qadaa = Object.values(statuses).filter((s) => s === 'qadaa').length;
+  // حساب عدد السنن الرواتب المؤداة
+  let sunnah_done = 0;
+  const sunnahData = doc.sunnah || {};
+  for (const prayer of Object.keys(sunnahData)) {
+    const s = sunnahData[prayer];
+    if (s?.before) sunnah_done++;
+    if (s?.after) sunnah_done++;
+  }
   return {
     prayers_done,
     prayers_masjid,
     prayers_home,
     prayers_qadaa,
+    sunnah_done,
     adhkar_done,
     tasbih_count: doc.tasbih_count || 0,
     quran_pages: doc.quran_pages || 0,
@@ -316,6 +326,7 @@ export async function getStatsRange(deviceId: string, start: string, end: string
     prayers_masjid: 0,
     prayers_home: 0,
     prayers_qadaa: 0,
+    sunnah_done: 0,
     adhkar_done: 0,
     tasbih_count: 0,
     quran_pages: 0,
@@ -344,6 +355,7 @@ export async function getStatsRange(deviceId: string, start: string, end: string
       totals.prayers_masjid += score.prayers_masjid;
       totals.prayers_home += score.prayers_home;
       totals.prayers_qadaa += score.prayers_qadaa;
+      totals.sunnah_done += score.sunnah_done;
       totals.adhkar_done += score.adhkar_done;
       totals.tasbih_count += score.tasbih_count;
       totals.quran_pages += score.quran_pages;
