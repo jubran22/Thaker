@@ -29,6 +29,14 @@ async function getNotifications() {
   }
 }
 
+// أصوات الأذان المتاحة
+const ADHAN_SOUNDS = [
+  { id: 'default', label: 'صوت النظام' },
+  { id: 'adhan_makkah', label: 'أذان مكة' },
+  { id: 'adhan_madinah', label: 'أذان المدينة' },
+  { id: 'adhan_egypt', label: 'أذان مصري' },
+];
+
 // ---- مكوّن اختيار الوقت ----
 function TimePicker({
   value,
@@ -249,6 +257,21 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+              <View style={styles.divider} />
+              <Text style={styles.cardSub}>صوت الأذان:</Text>
+              <View style={styles.pillRow}>
+                {ADHAN_SOUNDS.map((s) => (
+                  <TouchableOpacity
+                    key={s.id}
+                    onPress={() => updateField('adhan_sound', s.id)}
+                    style={[styles.pill, ((notif as any).adhan_sound || 'default') === s.id && styles.pillActive]}
+                  >
+                    <Text style={[styles.pillText, ((notif as any).adhan_sound || 'default') === s.id && styles.pillTextActive]}>
+                      {s.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </>
           )}
         </View>
@@ -375,32 +398,52 @@ async function scheduleAllNotifications(settings: NotifSettings) {
       return;
     }
 
-    // إعداد قناة الإشعارات لأندرويد
+    const adhanSound = (settings as any).adhan_sound || 'default';
+
+    // إعداد قنوات الإشعارات لأندرويد
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'الذاكرين',
+      // قناة الأذكار والتذكيرات
+      await Notifications.setNotificationChannelAsync('adhkar', {
+        name: 'أذكار وتذكيرات',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#1a6b3c',
         sound: 'default',
+      });
+      // قناة الأذان
+      await Notifications.setNotificationChannelAsync('adhan', {
+        name: 'أذان الصلاة',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 500, 200, 500],
+        lightColor: '#d4a017',
+        sound: adhanSound === 'default' ? 'default' : adhanSound,
+        enableVibrate: true,
+        bypassDnd: true,
       });
     }
 
     await Notifications.cancelAllScheduledNotificationsAsync();
 
     // دالة مساعدة لجدولة إشعار يومي متكرر
-    const scheduleDailyNotif = async (title: string, body: string, hour: number, minute: number) => {
+    const scheduleDailyNotif = async (
+      title: string,
+      body: string,
+      hour: number,
+      minute: number,
+      channelId = 'adhkar'
+    ) => {
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
           body,
           sound: 'default',
-          ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
+          ...(Platform.OS === 'android' ? { channelId } : {}),
         },
         trigger: {
           type: 'daily',
           hour,
           minute,
+          repeats: true,
         } as any,
       });
     };
@@ -414,7 +457,7 @@ async function scheduleAllNotifications(settings: NotifSettings) {
     // تنبيهات أذكار المساء
     if (settings.evening_adhkar_enabled) {
       const [h, m] = settings.evening_adhkar_time.split(':').map(Number);
-      await scheduleDailyNotif('🌆 أذكار المساء', 'حان وقت أذكار المساء — اختم يومك بذكر الله', h, m);
+      await scheduleDailyNotif('🏙️ أذكار المساء', 'حان وقت أذكار المساء — اختم يومك بذكر الله', h, m);
     }
 
     // تذكير الورد اليومي
@@ -423,7 +466,7 @@ async function scheduleAllNotifications(settings: NotifSettings) {
       await scheduleDailyNotif('📖 ورد القرآن اليومي', 'لا تنسَ قراءة وردك اليومي من القرآن الكريم', h, m);
     }
 
-    // تنبيهات أوقات الصلاة
+    // تنبيهات أوقات الصلاة - جدولة يومية متكررة
     if (settings.prayer_enabled) {
       const loc = await AsyncStorage.getItem('user_location');
       if (loc) {
@@ -433,43 +476,52 @@ async function scheduleAllNotifications(settings: NotifSettings) {
             await import('../utils/api');
           const { PRAYERS_AR } = await import('../constants/theme');
           const pt = await fetchPrayerTimesFromAladhan(p.lat, p.lng, aladhanDateStr());
-          const now = new Date();
+
           for (const k of ORDER) {
             const d = parseTime(pt.timings[k]);
             if (!d) continue;
-            // تذكير قبل الصلاة
+            const hour = d.getHours();
+            const minute = d.getMinutes();
+
+            // تذكير قبل الصلاة (يومي متكرر)
             if (settings.prayer_reminder_min > 0) {
-              const pre = new Date(d.getTime() - settings.prayer_reminder_min * 60 * 1000);
-              if (pre.getTime() > now.getTime()) {
+              const preMin = minute - settings.prayer_reminder_min;
+              const preHour = preMin < 0 ? hour - 1 : hour;
+              const adjMin = ((preMin % 60) + 60) % 60;
+              if (preHour >= 0) {
                 await Notifications.scheduleNotificationAsync({
                   content: {
                     title: `🕌 اقترب وقت صلاة ${PRAYERS_AR[k]}`,
                     body: `باقي ${settings.prayer_reminder_min} دقيقة — تهيأ للصلاة`,
                     sound: 'default',
-                    ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
+                    ...(Platform.OS === 'android' ? { channelId: 'adhkar' } : {}),
                   },
-                  trigger: { type: 'date', date: pre } as any,
+                  trigger: { type: 'daily', hour: preHour, minute: adjMin, repeats: true } as any,
                 });
               }
             }
-            // إشعار دخول وقت الصلاة
-            if (d.getTime() > now.getTime()) {
-              await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: `🕌 حان وقت صلاة ${PRAYERS_AR[k]}`,
-                  body: 'الصلاة خير من النوم — أقم الصلاة',
-                  sound: 'default',
-                  ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
-                },
-                trigger: { type: 'date', date: d } as any,
-              });
-            }
+
+            // إشعار دخول وقت الصلاة (يومي متكرر مع صوت الأذان)
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: `🕌 حان وقت صلاة ${PRAYERS_AR[k]}`,
+                body: 'الصلاة خير من النوم — أقم الصلاة',
+                sound: adhanSound === 'default' ? 'default' : adhanSound,
+                ...(Platform.OS === 'android' ? { channelId: 'adhan' } : {}),
+              },
+              trigger: { type: 'daily', hour, minute, repeats: true } as any,
+            });
           }
-        } catch {}
+        } catch (err) {
+          console.log('prayer schedule error', err);
+        }
+      } else {
+        Alert.alert('تنبيه', 'يرجى تحديث الموقع أولاً لجدولة تنبيهات الصلاة');
+        return;
       }
     }
 
-    Alert.alert('✅ تم الحفظ', 'تم جدولة الإشعارات بنجاح');
+    Alert.alert('✅ تم الحفظ', 'تم جدولة الإشعارات بنجاح — ستتكرر يومياً');
   } catch (e) {
     console.log('schedule error', e);
     Alert.alert('خطأ', 'تعذّر جدولة الإشعارات، تأكد من منح الإذن للتطبيق');
