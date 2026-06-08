@@ -260,6 +260,27 @@ export default function StatsScreen() {
           </View>
         </View>
 
+        {/* بطاقة السنن الرواتب */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="star" size={20} color="#D97706" />
+            <Text style={styles.cardTitle}>السنن الرواتب</Text>
+          </View>
+          <View style={styles.statRow}>
+            <Text style={[styles.statValue, { color: '#D97706' }]}>{totals.sunnah_done || 0}</Text>
+            <Text style={styles.statLabel}>سنة راتبة مؤداة</Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.twoColStats}>
+            <StatBox icon="star" color="#D97706" value={today.sunnah_done || 0} label="سنن اليوم" />
+            <StatBox icon="star-outline" color="#92400E" value={totals.sunnah_done || 0} label={rangeLabel} />
+          </View>
+          <View style={styles.divider} />
+          <Text style={[styles.statLabel, { textAlign: 'right', fontSize: 12, color: colors.textTertiary }]}>
+            السنن الرواتب: فجر 2 قبل · ظهر 4+2 · مغرب 2 · عشاء 2
+          </Text>
+        </View>
+
         {/* بطاقة الأذكار والقرآن */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
