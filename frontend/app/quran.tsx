@@ -34,6 +34,8 @@ import {
   isQuranDownloaded,
   setQuranDownloaded,
   getTodayTargetPage,
+  setQuranPages,
+  getDay,
   WIRD_PRESETS,
   WirdPlan,
   todayStr,
@@ -77,6 +79,8 @@ export default function QuranScreen() {
   const [todayTarget, setTodayTarget] = useState<{ from: number; to: number } | null>(null);
   const [showSurahIndex, setShowSurahIndex] = useState(false);
   const [surahSearch, setSurahSearch] = useState('');
+  const [quranStats, setQuranStats] = useState<{ pages_today: number; khatma_pct: number }>({ pages_today: 0, khatma_pct: 0 });
+  const [showStatsBar, setShowStatsBar] = useState(false);
   const listRef = useRef<FlatList>(null);
   const downloadAbortRef = useRef(false);
 
@@ -127,10 +131,36 @@ export default function QuranScreen() {
     const km = await getKhatmaBookmark(id);
     setKhatmaPage(km);
 
+    // إحصائيات القرآن اليومية
+    try {
+      const dayDoc = await getDay(id, todayStr());
+      const pagesRead = dayDoc.quran_pages || 0;
+      const khatmaPct = km > 1 ? Math.round((km / TOTAL_PAGES) * 100) : 0;
+      setQuranStats({ pages_today: pagesRead, khatma_pct: khatmaPct });
+    } catch {}
+
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // ---- تسجيل الصفحات المقروءة تلقائياً ----
+  const recordPageRead = useCallback(async (newPage: number) => {
+    if (!deviceId) return;
+    try {
+      const dayDoc = await getDay(deviceId, todayStr());
+      const current = dayDoc.quran_pages || 0;
+      // نسجّل الصفحات الجديدة فقط (لا نخصم)
+      if (newPage > current) {
+        const updated = await setQuranPages(deviceId, todayStr(), newPage);
+        const km = await getKhatmaBookmark(deviceId);
+        setQuranStats({
+          pages_today: updated.quran_pages,
+          khatma_pct: km > 1 ? Math.round((km / TOTAL_PAGES) * 100) : 0,
+        });
+      }
+    } catch {}
+  }, [deviceId]);
 
   // ---- حفظ علامة القراءة العادية ----
   const saveReadingBookmark = async (p: number) => {
@@ -297,7 +327,9 @@ export default function QuranScreen() {
         getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
         onMomentumScrollEnd={(e) => {
           const idx = Math.round(e.nativeEvent.contentOffset.x / width);
-          setPage(idx + 1);
+          const newPage = idx + 1;
+          setPage(newPage);
+          recordPageRead(newPage);
         }}
         renderItem={({ item }) => (
           <TouchableOpacity
@@ -322,15 +354,35 @@ export default function QuranScreen() {
               <Ionicons name="close" size={26} color={colors.textInverse} />
             </TouchableOpacity>
 
-            <View style={styles.pagePill}>
+            <TouchableOpacity style={styles.pagePill} onPress={() => setShowStatsBar(v => !v)}>
               <Text style={styles.pagePillText}>صفحة {page} / {TOTAL_PAGES}</Text>
-            </View>
+            </TouchableOpacity>
 
             {/* زر علامة القراءة */}
             <TouchableOpacity onPress={() => saveReadingBookmark(page)} style={styles.iconBtn}>
               <Ionicons name="bookmark" size={22} color={colors.gold} />
             </TouchableOpacity>
           </SafeAreaView>
+
+          {/* شريط إحصائيات القرآن */}
+          {showStatsBar && (
+            <View style={styles.statsBar}>
+              <View style={styles.statsBarItem}>
+                <Ionicons name="book" size={14} color={colors.gold} />
+                <Text style={styles.statsBarText}>{quranStats.pages_today} صفحة اليوم</Text>
+              </View>
+              {khatmaPage > 1 && (
+                <View style={styles.statsBarItem}>
+                  <Ionicons name="flag" size={14} color={colors.gold} />
+                  <Text style={styles.statsBarText}>الختمة: ص{khatmaPage} ({quranStats.khatma_pct}%)</Text>
+                </View>
+              )}
+              <View style={styles.statsBarItem}>
+                <Ionicons name="bookmark" size={14} color={colors.gold} />
+                <Text style={styles.statsBarText}>علامة القراءة: ص{page}</Text>
+              </View>
+            </View>
+          )}
 
           {/* شريط الورد اليومي */}
           {todayTarget && (
@@ -608,9 +660,30 @@ const styles = StyleSheet.create({
   },
   pagePillText: { color: colors.textInverse, fontWeight: '800', fontSize: 13 },
 
+  // شريط إحصائيات القرآن
+  statsBar: {
+    position: 'absolute',
+    top: 80,
+    left: 0,
+    right: 0,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    gap: 8,
+  },
+  statsBarItem: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statsBarText: { color: colors.gold, fontWeight: '700', fontSize: 12 },
+
   // شريط الورد
   wirdBar: {
-    position: 'absolute', top: 80, left: 0, right: 0,
+    position: 'absolute', top: 130, left: 0, right: 0,
     flexDirection: 'row-reverse', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: spacing.md, paddingVertical: 8,
     backgroundColor: 'rgba(180,130,0,0.85)',
