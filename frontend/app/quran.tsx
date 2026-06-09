@@ -95,11 +95,19 @@ export default function QuranScreen() {
 
   // الانتقال لصفحة سورة
   const goToSurah = (surah: SurahInfo) => {
-    const p = surah.page;
-    listRef.current?.scrollToIndex({ index: p - 1, animated: false });
-    setPage(p);
+    const p = Math.max(1, Math.min(TOTAL_PAGES, surah.page));
     setShowSurahIndex(false);
     setSurahSearch('');
+    // تأخير بسيط لإغلاق الـ Modal أولاً ثم التمرير
+    setTimeout(() => {
+      setPage(p);
+      try {
+        listRef.current?.scrollToIndex({ index: p - 1, animated: false });
+      } catch {
+        // fallback: استخدام scrollToOffset
+        listRef.current?.scrollToOffset({ offset: (p - 1) * width, animated: false });
+      }
+    }, 350);
   };
 
   const load = useCallback(async () => {
@@ -325,6 +333,12 @@ export default function QuranScreen() {
         maxToRenderPerBatch={2}
         showsHorizontalScrollIndicator={false}
         getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+        onScrollToIndexFailed={(info) => {
+          // إذا فشل scrollToIndex نستخدم scrollToOffset كبديل
+          const offset = info.index * width;
+          listRef.current?.scrollToOffset({ offset, animated: false });
+          setPage(info.index + 1);
+        }}
         onMomentumScrollEnd={(e) => {
           const idx = Math.round(e.nativeEvent.contentOffset.x / width);
           const newPage = idx + 1;
