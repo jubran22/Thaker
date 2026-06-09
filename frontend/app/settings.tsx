@@ -410,13 +410,13 @@ async function scheduleAllNotifications(settings: NotifSettings) {
         lightColor: '#1a6b3c',
         sound: 'default',
       });
-      // قناة الأذان
+      // قناة الأذان - صوت عالي مع اهتزاز
       await Notifications.setNotificationChannelAsync('adhan', {
         name: 'أذان الصلاة',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 500, 200, 500],
+        vibrationPattern: [0, 500, 200, 500, 200, 500],
         lightColor: '#d4a017',
-        sound: adhanSound === 'default' ? 'default' : adhanSound,
+        sound: 'default',  // صوت النظام - الأصوات المخصصة تحتاج ملفات في assets
         enableVibrate: true,
         bypassDnd: true,
       });
@@ -430,20 +430,21 @@ async function scheduleAllNotifications(settings: NotifSettings) {
       body: string,
       hour: number,
       minute: number,
-      channelId = 'adhkar'
+      channelId = 'adhkar',
+      useAdhanSound = false
     ) => {
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
           body,
-          sound: 'default',
+          sound: true,  // يستخدم صوت النظام الافتراضي
           ...(Platform.OS === 'android' ? { channelId } : {}),
         },
         trigger: {
-          type: 'daily',
           hour,
           minute,
           repeats: true,
+          // Expo SDK 54: DailyTriggerInput لا يحتاج type
         } as any,
       });
     };
@@ -493,23 +494,23 @@ async function scheduleAllNotifications(settings: NotifSettings) {
                   content: {
                     title: `🕌 اقترب وقت صلاة ${PRAYERS_AR[k]}`,
                     body: `باقي ${settings.prayer_reminder_min} دقيقة — تهيأ للصلاة`,
-                    sound: 'default',
+                    sound: true,
                     ...(Platform.OS === 'android' ? { channelId: 'adhkar' } : {}),
                   },
-                  trigger: { type: 'daily', hour: preHour, minute: adjMin, repeats: true } as any,
+                  trigger: { hour: preHour, minute: adjMin, repeats: true } as any,
                 });
               }
             }
 
-            // إشعار دخول وقت الصلاة (يومي متكرر مع صوت الأذان)
+            // إشعار دخول وقت الصلاة (يومي متكرر مع صوت عالي)
             await Notifications.scheduleNotificationAsync({
               content: {
                 title: `🕌 حان وقت صلاة ${PRAYERS_AR[k]}`,
                 body: 'الصلاة خير من النوم — أقم الصلاة',
-                sound: adhanSound === 'default' ? 'default' : adhanSound,
+                sound: true,  // صوت عالي للأذان
                 ...(Platform.OS === 'android' ? { channelId: 'adhan' } : {}),
               },
-              trigger: { type: 'daily', hour, minute, repeats: true } as any,
+              trigger: { hour, minute, repeats: true } as any,
             });
           }
         } catch (err) {
