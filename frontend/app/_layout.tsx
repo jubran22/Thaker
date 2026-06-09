@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { I18nManager, Platform } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { colors } from '../constants/theme';
 
 // Force RTL for Arabic on native. On web, I18nManager is a no-op.
@@ -83,6 +84,46 @@ function TabsInner() {
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    // طلب صلاحية الإشعارات عند بدء التطبيق وإعداد قنوات الأذان
+    (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+        // طلب الإذن
+        await Notifications.requestPermissionsAsync();
+        // إعداد معالج الإشعارات الواردة
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+          }),
+        });
+        // إعداد قنوات أندرويد
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('adhkar', {
+            name: 'أذكار وتذكيرات',
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#1a6b3c',
+            sound: 'default',
+          });
+          await Notifications.setNotificationChannelAsync('adhan', {
+            name: 'أذان الصلاة',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 500, 200, 500, 200, 500],
+            lightColor: '#d4a017',
+            sound: 'default',
+            enableVibrate: true,
+            bypassDnd: true,
+          });
+        }
+      } catch (e) {
+        console.log('notification setup error', e);
+      }
+    })();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
